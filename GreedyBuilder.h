@@ -13,7 +13,7 @@ public:
     // Constructor: Solo requiere el parser para acceder a los datos
     explicit GreedyBuilder(const Parser* parser);
 
-    // Método principal: Construye y retorna una solución válida
+    // Método principal: Construye y retorna una solución válida usando Clarke-Wright
     Solution buildSolution();
 
     // Destructor

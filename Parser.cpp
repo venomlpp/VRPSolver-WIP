@@ -10,7 +10,7 @@ using namespace std;
 Parser::Parser(const string& filename) : filename(filename), dimension(0), capacity(0) {
     loadData();
     calculateDistanceMatrix();
-    buildSortedAdjacencyList(); // NUEVO: Pre-calculamos los vecinos ordenados
+    buildSortedAdjacencyList(); // Pre-calculamos los vecinos ordenados
 }
 
 void Parser::loadData() {
@@ -65,12 +65,15 @@ void Parser::calculateDistanceMatrix() {
         for (int j = 1; j <= dimension; ++j) {
             double dx = clients[i].getX() - clients[j].getX();
             double dy = clients[i].getY() - clients[j].getY();
-            distanceMatrix[i][j] = (int)(sqrt(dx * dx + dy * dy));
+            
+            // EL CAMBIO ESTÁ AQUÍ:
+            // Usamos std::round para cumplir con la norma EUC_2D oficial del TSPLIB
+            distanceMatrix[i][j] = static_cast<int>(std::round(std::sqrt(dx * dx + dy * dy)));
         }
     }
 }
 
-// NUEVO: Construcción de la lista de adyacencia ordenada
+// Construcción de la lista de adyacencia ordenada
 void Parser::buildSortedAdjacencyList() {
     // Redimensionamos para tener un vector por cada nodo (índice 0 no se usa)
     sortedAdjacencyList.resize(dimension + 1);
@@ -93,7 +96,7 @@ const vector<Client>& Parser::getClients() const { return clients; }
 const vector<vector<int>>& Parser::getDistanceMatrix() const { return distanceMatrix; }
 int Parser::getDistance(int fromId, int toId) const { return distanceMatrix[fromId][toId]; }
 
-// NUEVO: Retorna la lista de vecinos ordenados de un nodo
+// Retorna la lista de vecinos ordenados de un nodo
 const vector<Neighbor>& Parser::getSortedNeighbors(int nodeId) const {
     return sortedAdjacencyList[nodeId];
 }

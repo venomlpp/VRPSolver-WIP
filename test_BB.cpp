@@ -8,7 +8,7 @@
 using namespace std;
 
 int main() {
-    cout << "--- Iniciando Test del Solver Branch & Bound (CLP + MTZ) ---" << endl;
+    cout << "--- Iniciando Test del Solver Branch & Bound (CLP + DFJ) ---" << endl;
     
     // NOTA: Prueba primero con "toy.vrp". Cuando estés seguro de que compila 
     // y corre sin segmentation faults, cámbialo a "X-n115-k10.vrp"
@@ -18,10 +18,10 @@ int main() {
     Parser parser(filename);
     
     // --- FASE 1: Construcción ---
-    cout << "2. Ejecutando GreedyBuilder (GNN)..." << endl;
+    cout << "2. Ejecutando Clarke-Wright..." << endl;
     GreedyBuilder greedy(&parser);
     Solution solucionGreedy = greedy.buildSolution();
-    cout << "   -> Costo Greedy: " << solucionGreedy.getTotalCost() << endl;
+    cout << "   -> Costo CW: " << solucionGreedy.getTotalCost() << endl;
 
     // --- FASE 2: Mejora Heurística (Upper Bound Inicial) ---
     cout << "3. Ejecutando 3-OPT para establecer Upper Bound global..." << endl;
@@ -31,7 +31,7 @@ int main() {
 
     // --- FASE 3: Branch & Bound Continuo ---
     cout << "\n4. Iniciando Branch & Bound con modelo COIN-OR CLP..." << endl;
-    cout << "   (Esto puede tomar tiempo dependiendo de la cantidad de nodos y la fuerza de MTZ)" << endl;
+    cout << "   (Esto puede tomar tiempo dependiendo de la cantidad de nodos)" << endl;
     
     BranchAndBound bbSolver(&parser, solucionKOpt);
     Solution solucionFinal = bbSolver.solveBestFirst();
