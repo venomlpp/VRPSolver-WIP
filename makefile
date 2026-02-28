@@ -26,9 +26,8 @@ test_kopt: test_KOpt.cpp KOpt.o GreedyBuilder.o Solution.o Route.o Parser.o Clie
 test_bb: test_BB.cpp BranchAndBound.o KOpt.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o
 	$(CXX) $(CXXFLAGS) test_BB.cpp BranchAndBound.o KOpt.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o -o test_bb $(LIBS)
 
-test_clp: test_clp.cpp ClpSolver.o Parser.o Client.o
-	$(CXX) $(CXXFLAGS) test_clp.cpp ClpSolver.o Parser.o Client.o -o test_clp -lClp -lCoinUtils
-
+test_cbc: test_cbc.cpp CbcSolver.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o KOpt.o
+	$(CXX) $(CXXFLAGS) test_cbc.cpp CbcSolver.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o KOpt.o -o test_cbc -lCbc -lCgl -lOsiClp -lOsi -lClp -lCoinUtils
 # --- Reglas para Compilar Objetos (.o) ---
 
 Client.o: Client.cpp Client.h
@@ -53,10 +52,10 @@ KOpt.o: KOpt.cpp KOpt.h Solution.h Parser.h Route.h
 BranchAndBound.o: BranchAndBound.cpp BranchAndBound.h Solution.h Parser.h KOpt.h
 	$(CXX) $(CXXFLAGS) -c BranchAndBound.cpp -o BranchAndBound.o
 
-ClpSolver.o: ClpSolver.cpp ClpSolver.h Parser.h
-	$(CXX) $(CXXFLAGS) -c ClpSolver.cpp -o ClpSolver.o
+CbcSolver.o: CbcSolver.cpp CbcSolver.h Parser.h Solution.h
+	$(CXX) $(CXXFLAGS) -c CbcSolver.cpp -o CbcSolver.o
 
 # --- Utilidades ---
 
 clean:
-	rm -f *.o test_parser test_route test_greedy test_kopt test_bb
+	rm -f *.o test_parser test_route test_greedy test_kopt test_bb test_cbc

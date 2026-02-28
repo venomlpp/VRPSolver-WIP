@@ -12,7 +12,7 @@ int main() {
     
     // NOTA: Prueba primero con "toy.vrp". Cuando estés seguro de que compila 
     // y corre sin segmentation faults, cámbialo a "X-n115-k10.vrp"
-    string filename = "A-n32-k5.vrp"; // Cambia a tu instancia de prueba aquí
+    string filename = "A-n62-k8.vrp"; // Cambia a tu instancia de prueba aquí
     
     cout << "1. Cargando instancia: " << filename << "..." << endl;
     Parser parser(filename);
