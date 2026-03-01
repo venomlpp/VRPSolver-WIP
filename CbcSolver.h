@@ -4,7 +4,8 @@
 #include "Parser.h"
 #include "Solution.h"
 #include "GreedyBuilder.h"
-#include "KOpt.h"
+#include "VNS.h"               // Reemplaza KOpt como optimizador principal
+#include "SubtourCut.h" // Cortes DFJ lazy
 #include <vector>
 
 class CbcSolver {
@@ -19,9 +20,10 @@ private:
 
 public:
     explicit CbcSolver(const Parser* parser);
-    
+
     // Resuelve el problema usando el motor exacto CBC de COIN-OR
-    Solution solve(int numVehicles);
+    // con cortes DFJ, heurísticas internas y refinamiento VNS
+    Solution solve(int numVehicles, double timeLimitSeconds = 120.0);
 };
 
 #endif // CBC_SOLVER_H

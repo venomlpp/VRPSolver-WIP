@@ -40,8 +40,8 @@ private:
 
 public:
     BranchAndBound(const Parser* parser, const Solution& initialSolution);
-    Solution solveBestFirst();
-    Solution solveDepthFirst();
+    Solution solveBestFirst(double timeLimitSeconds = 120.0);
+    Solution solveDepthFirst(double timeLimitSeconds = 120.0);
     ~BranchAndBound();
 };
 

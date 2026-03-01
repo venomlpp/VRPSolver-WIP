@@ -2,33 +2,46 @@
 
 CXX = g++
 CXXFLAGS = -std=c++17 -Wall -g -I.
+
 # Banderas de enlace para COIN-OR
-LIBS = -lClp -lCoinUtils 
+LIBS_BASE = -lClp -lCoinUtils
+LIBS_CBC  = -lCbc -lCgl -lOsiClp -lOsi -lClp -lCoinUtils
+
+# Carpeta donde viven los tests
+TESTS_DIR = tests
 
 # Target por defecto
-all: test_parser test_route test_greedy test_kopt test_bb
+all: test_parser test_route test_greedy test_kopt test_vns test_bb test_cbc
 
-# --- Ejecutables de Prueba ---
+# ---------------------------------------------------------------
+# Ejecutables de Prueba
+# ---------------------------------------------------------------
 
-test_parser: test_Parser.cpp Parser.o Client.o
-	$(CXX) $(CXXFLAGS) test_Parser.cpp Parser.o Client.o -o test_parser
+test_parser: $(TESTS_DIR)/test_Parser.cpp Parser.o Client.o
+	$(CXX) $(CXXFLAGS) $(TESTS_DIR)/test_Parser.cpp Parser.o Client.o -o test_parser
 
-test_route: test_Route.cpp Route.o Parser.o Client.o
-	$(CXX) $(CXXFLAGS) test_Route.cpp Route.o Parser.o Client.o -o test_route
+test_route: $(TESTS_DIR)/test_Route.cpp Route.o Parser.o Client.o
+	$(CXX) $(CXXFLAGS) $(TESTS_DIR)/test_Route.cpp Route.o Parser.o Client.o -o test_route
 
-test_greedy: test_Greedy.cpp GreedyBuilder.o Solution.o Route.o Parser.o Client.o
-	$(CXX) $(CXXFLAGS) test_Greedy.cpp GreedyBuilder.o Solution.o Route.o Parser.o Client.o -o test_greedy
+test_greedy: $(TESTS_DIR)/test_Greedy.cpp GreedyBuilder.o Solution.o Route.o Parser.o Client.o
+	$(CXX) $(CXXFLAGS) $(TESTS_DIR)/test_Greedy.cpp GreedyBuilder.o Solution.o Route.o Parser.o Client.o -o test_greedy
 
-test_kopt: test_KOpt.cpp KOpt.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o
-	$(CXX) $(CXXFLAGS) test_KOpt.cpp KOpt.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o -o test_kopt
+test_kopt: $(TESTS_DIR)/test_KOpt.cpp KOpt.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o
+	$(CXX) $(CXXFLAGS) $(TESTS_DIR)/test_KOpt.cpp KOpt.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o -o test_kopt
 
-# NUEVO: Ejecutable para Branch & Bound
-test_bb: test_BB.cpp BranchAndBound.o KOpt.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o
-	$(CXX) $(CXXFLAGS) test_BB.cpp BranchAndBound.o KOpt.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o -o test_bb $(LIBS)
+test_vns: $(TESTS_DIR)/test_VNS.cpp VNS.o KOpt.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o
+	$(CXX) $(CXXFLAGS) $(TESTS_DIR)/test_VNS.cpp VNS.o KOpt.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o -o test_vns
 
-test_cbc: test_cbc.cpp CbcSolver.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o KOpt.o
-	$(CXX) $(CXXFLAGS) test_cbc.cpp CbcSolver.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o KOpt.o -o test_cbc -lCbc -lCgl -lOsiClp -lOsi -lClp -lCoinUtils
-# --- Reglas para Compilar Objetos (.o) ---
+test_bb: $(TESTS_DIR)/test_BB.cpp BranchAndBound.o KOpt.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o
+	$(CXX) $(CXXFLAGS) $(TESTS_DIR)/test_BB.cpp BranchAndBound.o KOpt.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o -o test_bb $(LIBS_BASE)
+
+test_cbc: $(TESTS_DIR)/test_cbc.cpp CbcSolver.o SubtourCut.o VNS.o KOpt.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o
+	$(CXX) $(CXXFLAGS) $(TESTS_DIR)/test_cbc.cpp CbcSolver.o SubtourCut.o VNS.o KOpt.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o -o test_cbc $(LIBS_CBC)
+
+# ---------------------------------------------------------------
+# Reglas para compilar objetos (.o)
+# Estos siguen viviendo en la raíz del proyecto
+# ---------------------------------------------------------------
 
 Client.o: Client.cpp Client.h
 	$(CXX) $(CXXFLAGS) -c Client.cpp -o Client.o
@@ -48,14 +61,21 @@ GreedyBuilder.o: GreedyBuilder.cpp GreedyBuilder.h Solution.h Parser.h
 KOpt.o: KOpt.cpp KOpt.h Solution.h Parser.h Route.h
 	$(CXX) $(CXXFLAGS) -c KOpt.cpp -o KOpt.o
 
-# NUEVO: Objeto de Branch and Bound
+VNS.o: VNS.cpp VNS.h KOpt.h Solution.h Parser.h Route.h
+	$(CXX) $(CXXFLAGS) -c VNS.cpp -o VNS.o
+
 BranchAndBound.o: BranchAndBound.cpp BranchAndBound.h Solution.h Parser.h KOpt.h
 	$(CXX) $(CXXFLAGS) -c BranchAndBound.cpp -o BranchAndBound.o
 
-CbcSolver.o: CbcSolver.cpp CbcSolver.h Parser.h Solution.h
+SubtourCut.o: SubtourCut.cpp SubtourCut.h Parser.h
+	$(CXX) $(CXXFLAGS) -c SubtourCut.cpp -o SubtourCut.o
+
+CbcSolver.o: CbcSolver.cpp CbcSolver.h Parser.h Solution.h VNS.h SubtourCut.h
 	$(CXX) $(CXXFLAGS) -c CbcSolver.cpp -o CbcSolver.o
 
-# --- Utilidades ---
+# ---------------------------------------------------------------
+# Utilidades
+# ---------------------------------------------------------------
 
 clean:
-	rm -f *.o test_parser test_route test_greedy test_kopt test_bb test_cbc
+	rm -f *.o test_parser test_route test_greedy test_kopt test_vns test_bb test_cbc

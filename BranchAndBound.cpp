@@ -2,6 +2,7 @@
 #include <iostream>
 #include <cmath>
 #include <coin/CoinBuild.hpp>
+#include <chrono>
 
 using namespace std;
 
@@ -239,7 +240,7 @@ Solution BranchAndBound::roundingHeuristic(const double* solution) const {
     return heuristicSol;
 }
 
-Solution BranchAndBound::solveBestFirst() {
+Solution BranchAndBound::solveBestFirst(double timeLimitSeconds) {
     ClpSimplex baseModel;
     baseModel.setLogLevel(0); 
     buildBaseModel(baseModel);
@@ -252,24 +253,28 @@ Solution BranchAndBound::solveBestFirst() {
     root.upperBounds.assign(numVariables, 1.0); 
     
     baseModel.initialSolve();
-    cout << "LB para el modelo inicial: " << baseModel.objectiveValue() << " | UB inicial (Heurística): " << globalUpperBound << endl;
-    if (!baseModel.isProvenOptimal()) return bestSolution; 
+    cout << "LB inicial: " << baseModel.objectiveValue()
+         << " | UB inicial (heuristica): " << globalUpperBound << endl;
+    if (!baseModel.isProvenOptimal()) return bestSolution;
     
     root.lowerBound = baseModel.objectiveValue();
     pq.push(root);
 
     int nodesExplored = 0;
     int cutsAdded = 0;
-
+    auto startTime = chrono::steady_clock::now();
     while (!pq.empty()) {
-        int MAX_NODES = 50000;
+        auto elapsed = chrono::duration<double>(
+            chrono::steady_clock::now() - startTime).count();
+        if (elapsed >= timeLimitSeconds) {
+            cout << "Limite de tiempo alcanzado (" << timeLimitSeconds
+                 << "s). Deteniendo BestFirst." << endl;
+            break;
+        }
         BBNode current = pq.top();
         pq.pop();
         nodesExplored++;
-        if (nodesExplored >= MAX_NODES) {
-            cout << "Límite de nodos explorados alcanzado (" << MAX_NODES << "). Deteniendo DFS." << endl;
-            break;
-        }
+        
 
         if (nodesExplored % 1000 == 0) {
             cout << "[Debug B&B] Nodos: " << nodesExplored 
@@ -376,7 +381,7 @@ Solution BranchAndBound::solveBestFirst() {
     return bestSolution;
 }
 
-Solution BranchAndBound::solveDepthFirst() {
+Solution BranchAndBound::solveDepthFirst(double timeLimitSeconds) {
     ClpSimplex baseModel;
     baseModel.setLogLevel(0); 
     buildBaseModel(baseModel);
@@ -395,20 +400,24 @@ Solution BranchAndBound::solveDepthFirst() {
     root.lowerBound = baseModel.objectiveValue();
     st.push(root);
 
+    
     int nodesExplored = 0;
-    int MAX_NODES = 20000;
     int cutsAdded = 0;
+    auto startTime = chrono::steady_clock::now();
 
     while (!st.empty()) {
         // En una pila también usamos top() para leer y pop() para extraer
-        if (nodesExplored >= MAX_NODES) {
-            cout << "Límite de nodos explorados alcanzado (" << MAX_NODES << "). Deteniendo DFS." << endl;
-            break;
-        }
+        
         BBNode current = st.top();
         st.pop();
         nodesExplored++;
-        
+        auto elapsed = chrono::duration<double>(
+            chrono::steady_clock::now() - startTime).count();
+        if (elapsed >= timeLimitSeconds) {
+            cout << "Limite de tiempo alcanzado (" << timeLimitSeconds
+                 << "s). Deteniendo BestFirst." << endl;
+            break;
+        }
 
         if (nodesExplored % 1000 == 0) {
             cout << "[Debug B&B (DFS)] Nodos: " << nodesExplored 
