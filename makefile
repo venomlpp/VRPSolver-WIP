@@ -11,7 +11,7 @@ LIBS_CBC  = -lCbc -lCgl -lOsiClp -lOsi -lClp -lCoinUtils
 TESTS_DIR = tests
 
 # Target por defecto
-all: test_parser test_route test_greedy test_kopt test_vns test_bb test_cbc
+all: test_parser test_route test_greedy test_kopt test_vns test_bb test_bbvns test_cbc
 
 # ---------------------------------------------------------------
 # Ejecutables de Prueba
@@ -38,6 +38,8 @@ test_bb: $(TESTS_DIR)/test_BB.cpp BranchAndBound.o KOpt.o GreedyBuilder.o Soluti
 test_cbc: $(TESTS_DIR)/test_cbc.cpp CbcSolver.o SubtourCut.o VNS.o KOpt.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o
 	$(CXX) $(CXXFLAGS) $(TESTS_DIR)/test_cbc.cpp CbcSolver.o SubtourCut.o VNS.o KOpt.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o -o test_cbc $(LIBS_CBC)
 
+test_bbvns: $(TESTS_DIR)/test_bbvns.cpp BranchAndBound.o VNS.o KOpt.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o
+	$(CXX) $(CXXFLAGS) $(TESTS_DIR)/test_bbvns.cpp BranchAndBound.o VNS.o KOpt.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o -o test_bbvns $(LIBS_BASE)
 # ---------------------------------------------------------------
 # Reglas para compilar objetos (.o)
 # Estos siguen viviendo en la raíz del proyecto
@@ -78,4 +80,4 @@ CbcSolver.o: CbcSolver.cpp CbcSolver.h Parser.h Solution.h VNS.h SubtourCut.h
 # ---------------------------------------------------------------
 
 clean:
-	rm -f *.o test_parser test_route test_greedy test_kopt test_vns test_bb test_cbc
+	rm -f *.o test_parser test_route test_greedy test_kopt test_vns test_bb test_cbc test_bbvns

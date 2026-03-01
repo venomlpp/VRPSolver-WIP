@@ -1,0 +1,64 @@
+./test_bbvns
+========================================
+  TEST B&B+VNS - Branch & Bound + CLP + VNS
+  Instancia  : sets/A-n32-k5.vrp
+  Warm start : Clarke-Wright + VNS (30 iter)
+  Limite     : 240s por estrategia
+  (Tiempo total estimado: hasta ~14 minutos)
+========================================
+
+Instancia cargada: N=32 Q=100
+
+========================================
+TEST 3: Pipeline CW -> VNS -> BestFirst
+========================================
+LB inicial: 584.5 | UB inicial (heuristica): 814
+[Debug B&B] Nodos: 1000 | Cola: 952 | Cortes Inyectados: 86 | Mejor LB: 726.667 | UB: 814
+[Debug B&B] Nodos: 2000 | Cola: 1922 | Cortes Inyectados: 131 | Mejor LB: 737.714 | UB: 814
+[Debug B&B] Nodos: 3000 | Cola: 2891 | Cortes Inyectados: 184 | Mejor LB: 749.5 | UB: 814
+[Debug B&B] Nodos: 4000 | Cola: 3875 | Cortes Inyectados: 208 | Mejor LB: 752.5 | UB: 814
+[Debug B&B] Nodos: 5000 | Cola: 4859 | Cortes Inyectados: 238 | Mejor LB: 754.5 | UB: 814
+[Debug B&B] Nodos: 6000 | Cola: 5848 | Cortes Inyectados: 254 | Mejor LB: 756.25 | UB: 814
+[Debug B&B] Nodos: 7000 | Cola: 6829 | Cortes Inyectados: 284 | Mejor LB: 757.744 | UB: 814
+[Debug B&B] Nodos: 8000 | Cola: 7813 | Cortes Inyectados: 310 | Mejor LB: 759 | UB: 814
+[Debug B&B] Nodos: 9000 | Cola: 8794 | Cortes Inyectados: 337 | Mejor LB: 761 | UB: 814
+[Debug B&B] Nodos: 10000 | Cola: 9765 | Cortes Inyectados: 371 | Mejor LB: 763.25 | UB: 814
+[Debug B&B] Nodos: 11000 | Cola: 10740 | Cortes Inyectados: 395 | Mejor LB: 765 | UB: 814
+[Debug B&B] Nodos: 12000 | Cola: 11723 | Cortes Inyectados: 412 | Mejor LB: 766.5 | UB: 814
+[Debug B&B] Nodos: 13000 | Cola: 12701 | Cortes Inyectados: 425 | Mejor LB: 767.5 | UB: 814
+[Debug B&B] Nodos: 14000 | Cola: 13689 | Cortes Inyectados: 435 | Mejor LB: 768.5 | UB: 814
+[Debug B&B] Nodos: 15000 | Cola: 14681 | Cortes Inyectados: 437 | Mejor LB: 769 | UB: 814
+[Debug B&B] Nodos: 16000 | Cola: 15661 | Cortes Inyectados: 453 | Mejor LB: 769.5 | UB: 814
+[Debug B&B] Nodos: 17000 | Cola: 16647 | Cortes Inyectados: 460 | Mejor LB: 770 | UB: 814
+[Debug B&B] Nodos: 18000 | Cola: 17639 | Cortes Inyectados: 470 | Mejor LB: 770.5 | UB: 814
+[Debug B&B] Nodos: 19000 | Cola: 18629 | Cortes Inyectados: 473 | Mejor LB: 771 | UB: 814
+[Debug B&B] Nodos: 20000 | Cola: 19620 | Cortes Inyectados: 486 | Mejor LB: 771 | UB: 814
+[Debug B&B] Nodos: 21000 | Cola: 20611 | Cortes Inyectados: 491 | Mejor LB: 771.5 | UB: 814
+[Debug B&B] Nodos: 22000 | Cola: 21602 | Cortes Inyectados: 499 | Mejor LB: 771.667 | UB: 814
+[Debug B&B] Nodos: 23000 | Cola: 22596 | Cortes Inyectados: 506 | Mejor LB: 772 | UB: 814
+[Debug B&B] Nodos: 24000 | Cola: 23585 | Cortes Inyectados: 511 | Mejor LB: 772.5 | UB: 814
+[Debug B&B] Nodos: 25000 | Cola: 24573 | Cortes Inyectados: 525 | Mejor LB: 773 | UB: 814
+[Debug B&B] Nodos: 26000 | Cola: 25558 | Cortes Inyectados: 542 | Mejor LB: 773.312 | UB: 814
+Limite de tiempo alcanzado (240s). Deteniendo BestFirst.
+Arbol explorado. Nodos: 26270 | Cortes inyectados: 544
+
+=== RESUMEN PIPELINE (BestFirst + VNS) ===
+Costo Clarke-Wright : 842
+Costo VNS           : 814  (mejora: 28)
+Costo BestFirst     : 814  (mejora: 0)
+Mejora total        : 28  (3.32542%)
+Tiempo B&B          : 240.038s
+
+--- Solucion Final BestFirst+VNS ---
+Costo total : 814
+Vehiculos   : 5
+  Vehiculo 1 | Carga: 72 | Costo: 73 | Ruta: [ 1 13 2 17 31 1 ]
+  Vehiculo 2 | Carga: 98 | Costo: 155 | Ruta: [ 1 22 32 20 18 14 8 27 1 ]
+  Vehiculo 3 | Carga: 99 | Costo: 258 | Ruta: [ 1 15 7 24 29 5 12 9 10 23 30 1 ]
+  Vehiculo 4 | Carga: 44 | Costo: 59 | Ruta: [ 1 28 25 1 ]
+  Vehiculo 5 | Carga: 97 | Costo: 269 | Ruta: [ 1 3 4 19 16 11 26 6 21 1 ]
+PASS: Pipeline CW -> VNS -> BestFirst valido y monotono.
+
+========================================
+  TODOS LOS TESTS PASARON
+========================================
