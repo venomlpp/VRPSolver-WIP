@@ -32,8 +32,8 @@ test_kopt: $(TESTS_DIR)/test_KOpt.cpp KOpt.o GreedyBuilder.o Solution.o Route.o 
 test_vns: $(TESTS_DIR)/test_VNS.cpp VNS.o KOpt.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o
 	$(CXX) $(CXXFLAGS) $(TESTS_DIR)/test_VNS.cpp VNS.o KOpt.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o -o test_vns
 
-test_bb: $(TESTS_DIR)/test_BB.cpp BranchAndBound.o KOpt.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o
-	$(CXX) $(CXXFLAGS) $(TESTS_DIR)/test_BB.cpp BranchAndBound.o KOpt.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o -o test_bb $(LIBS_BASE)
+test_bb: $(TESTS_DIR)/test_BB.cpp BranchAndBound.o VNS.o KOpt.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o
+	$(CXX) $(CXXFLAGS) $(TESTS_DIR)/test_BB.cpp BranchAndBound.o VNS.o KOpt.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o -o test_bb $(LIBS_BASE)
 
 test_cbc: $(TESTS_DIR)/test_cbc.cpp CbcSolver.o SubtourCut.o VNS.o KOpt.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o
 	$(CXX) $(CXXFLAGS) $(TESTS_DIR)/test_cbc.cpp CbcSolver.o SubtourCut.o VNS.o KOpt.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o -o test_cbc $(LIBS_CBC)
@@ -66,7 +66,7 @@ KOpt.o: KOpt.cpp KOpt.h Solution.h Parser.h Route.h
 VNS.o: VNS.cpp VNS.h KOpt.h Solution.h Parser.h Route.h
 	$(CXX) $(CXXFLAGS) -c VNS.cpp -o VNS.o
 
-BranchAndBound.o: BranchAndBound.cpp BranchAndBound.h Solution.h Parser.h KOpt.h
+BranchAndBound.o: BranchAndBound.cpp BranchAndBound.h Solution.h Parser.h KOpt.h VNS.h
 	$(CXX) $(CXXFLAGS) -c BranchAndBound.cpp -o BranchAndBound.o
 
 SubtourCut.o: SubtourCut.cpp SubtourCut.h Parser.h

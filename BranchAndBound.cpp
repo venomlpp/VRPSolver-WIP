@@ -1,4 +1,5 @@
 #include "BranchAndBound.h"
+#include "VNS.h"
 #include <iostream>
 #include <cmath>
 #include <coin/CoinBuild.hpp>
@@ -303,16 +304,32 @@ Solution BranchAndBound::solveBestFirst(double timeLimitSeconds) {
         int fractionalVar = getMostFractionalVariable(solution);
         //Heurística por redondeo
         Solution roundedSol = roundingHeuristic(solution);
+        // DEBUG TEMPORAL
+        if (nodesExplored % 5000 == 0) {
+            cout << "[DEBUG] roundedSol.isValid() = " << roundedSol.isValid()
+                << " | rutas: " << roundedSol.getRoutes().size()
+                << " | costo: " << roundedSol.getTotalCost() << endl;
+        }     
         if (roundedSol.isValid()) {
-            // Le pasamos tu 3-OPT para que refine los errores del redondeo
-            KOpt optimizador(parserData);
-            Solution refinedSol = optimizador.optimize(roundedSol);
-            
-            if (refinedSol.getTotalCost() < globalUpperBound) {
-                globalUpperBound = refinedSol.getTotalCost();
-                bestSolution = refinedSol;
-                cout << "\n[HEURÍSTICA DE REDONDEO] ¡BINGO! Nuevo UB encontrado: " 
-                     << globalUpperBound << " en el nodo " << nodesExplored << "\n" << endl;
+            // Primero KOpt rápido para filtrar soluciones muy malas
+            KOpt kopt(parserData);
+            Solution koptSol = kopt.optimize(roundedSol);
+    
+            // Solo invertir en VNS si KOpt ya está cerca del UB
+            if (koptSol.getTotalCost() < globalUpperBound * 1.1) {
+                VNS vnsLocal(parserData);
+                Solution refinedSol = vnsLocal.optimize(koptSol, 50);
+                if (refinedSol.getTotalCost() < globalUpperBound) {
+                    globalUpperBound = refinedSol.getTotalCost();
+                    bestSolution = refinedSol;
+                    cout << "[REDONDEO+VNS] Nuevo UB: " << globalUpperBound
+                        << " en nodo " << nodesExplored << endl;
+                }
+            } else if (koptSol.getTotalCost() < globalUpperBound) {
+                globalUpperBound = koptSol.getTotalCost();
+                bestSolution = koptSol;
+                cout << "[REDONDEO] Nuevo UB: " << globalUpperBound
+                    << " en nodo " << nodesExplored << endl;
             }
         }
 
@@ -377,7 +394,17 @@ Solution BranchAndBound::solveBestFirst(double timeLimitSeconds) {
         pq.push(rightChild);
     }
 
-    cout << "Arbol explorado. Nodos: " << nodesExplored << " | Cortes inyectados: " << cutsAdded << endl;
+    cout << "BestFirst finalizado. Nodos: " << nodesExplored
+     << " | Cortes: " << cutsAdded << endl;
+
+    VNS vnsFinal(parserData);
+    double costBefore = bestSolution.getTotalCost();
+    bestSolution = vnsFinal.optimize(bestSolution, 30);
+    if (bestSolution.getTotalCost() < costBefore)
+        cout << "[VNS final] " << costBefore << " -> "
+            << bestSolution.getTotalCost()
+            << " (mejora: " << costBefore - bestSolution.getTotalCost() << ")" << endl;
+
     return bestSolution;
 }
 
@@ -415,7 +442,7 @@ Solution BranchAndBound::solveDepthFirst(double timeLimitSeconds) {
             chrono::steady_clock::now() - startTime).count();
         if (elapsed >= timeLimitSeconds) {
             cout << "Limite de tiempo alcanzado (" << timeLimitSeconds
-                 << "s). Deteniendo BestFirst." << endl;
+                 << "s). Deteniendo DepthFirst." << endl;
             break;
         }
 
@@ -448,8 +475,8 @@ Solution BranchAndBound::solveDepthFirst(double timeLimitSeconds) {
         Solution roundedSol = roundingHeuristic(solution);
         if (roundedSol.isValid()) {
             // Le pasamos tu 3-OPT para que refine los errores del redondeo
-            KOpt optimizador(parserData);
-            Solution refinedSol = optimizador.optimize(roundedSol);
+            VNS optimizador(parserData);
+            Solution refinedSol = optimizador.optimize(roundedSol, 15);
             
             if (refinedSol.getTotalCost() < globalUpperBound) {
                 globalUpperBound = refinedSol.getTotalCost();
@@ -529,7 +556,15 @@ Solution BranchAndBound::solveDepthFirst(double timeLimitSeconds) {
         }
     }
 
-    cout << "Arbol explorado (DFS). Nodos: " << nodesExplored << " | Cortes inyectados: " << cutsAdded << endl;
+    cout << "DepthFirst finalizado. Nodos: " << nodesExplored
+     << " | Cortes: " << cutsAdded << endl;
+    VNS vnsFinal(parserData);
+    double costBefore = bestSolution.getTotalCost();
+    bestSolution = vnsFinal.optimize(bestSolution, 30);
+    if (bestSolution.getTotalCost() < costBefore)
+        cout << "[VNS final] " << costBefore << " -> "
+            << bestSolution.getTotalCost()
+            << " (mejora: " << costBefore - bestSolution.getTotalCost() << ")" << endl;
     return bestSolution;
 }
 

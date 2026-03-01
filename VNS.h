@@ -26,7 +26,7 @@ public:
     explicit VNS(const Parser* parser);
 
     // Método principal: aplica VNS a la solución recibida
-    Solution optimize(const Solution& initialSolution);
+    Solution optimize(const Solution& initialSolution, int maxIter = 100);
 
 private:
     const Parser* parserData;

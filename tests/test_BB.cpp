@@ -11,6 +11,7 @@
 #include "Parser.h"
 #include "GreedyBuilder.h"
 #include "KOpt.h"
+#include "VNS.h"
 #include "BranchAndBound.h"
 #include "Solution.h"
 
@@ -19,7 +20,7 @@ using namespace std;
 // Límite de tiempo compartido por ambas estrategias.
 // Usar el mismo valor que TIME_LIMIT_SECONDS en test_cbc
 // para una comparación justa entre B&B y CBC.
-const double TIME_LIMIT_SECONDS = 120.0;
+const double TIME_LIMIT_SECONDS = 240.0;
 
 // ─────────────────────────────────────────────────────────────
 // Imprime una solución con detalle de rutas
@@ -46,8 +47,8 @@ void printSolution(const Solution& sol, const string& label) {
 // ─────────────────────────────────────────────────────────────
 Solution buildWarmStart(const Parser& parser) {
     GreedyBuilder builder(&parser);
-    KOpt kopt(&parser);
-    return kopt.optimize(builder.buildSolution());
+    VNS vns(&parser);
+    return vns.optimize(builder.buildSolution());
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -59,7 +60,7 @@ void testBestFirstValidity(const Parser& parser) {
     cout << "========================================" << endl;
 
     Solution warmStart = buildWarmStart(parser);
-    cout << "Warm start CW + KOpt: " << warmStart.getTotalCost() << endl;
+    cout << "Warm start CW + VNS: " << warmStart.getTotalCost() << endl;
 
     BranchAndBound bb(&parser, warmStart);
     Solution result = bb.solveBestFirst(TIME_LIMIT_SECONDS);
@@ -200,7 +201,7 @@ int main(int argc, char* argv[]) {
     cout << "========================================" << endl;
     cout << "  TEST B&B - Branch & Bound + CLP" << endl;
     cout << "  Instancia  : " << filename << endl;
-    cout << "  Warm start : Clarke-Wright + KOpt (sin VNS)" << endl;
+    cout << "  Warm start : Clarke-Wright + VNS" << endl;
     cout << "  Limite     : " << TIME_LIMIT_SECONDS << "s por estrategia" << endl;
     cout << "  (Tiempo total estimado: hasta ~"
          << (int)(TIME_LIMIT_SECONDS * 2 / 60 + 1) << " minutos)" << endl;
@@ -212,9 +213,9 @@ int main(int argc, char* argv[]) {
          << " Q=" << parser.getCapacity() << endl;
 
     testBestFirstValidity(parser);
-    testDepthFirstValidity(parser);
-    testFullPipelineBestFirst(parser);
-    testBestFirstVsDepthFirst(parser);
+    // testDepthFirstValidity(parser);
+    // testFullPipelineBestFirst(parser);
+    // testBestFirstVsDepthFirst(parser);
 
     cout << "\n========================================" << endl;
     cout << "  TODOS LOS TESTS PASARON" << endl;

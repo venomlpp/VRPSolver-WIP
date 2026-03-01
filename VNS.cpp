@@ -447,13 +447,13 @@ Solution VNS::shake(const Solution& sol, int intensity, mt19937& rng) const {
 //     si no mejora         → k++
 //   tras cada mejora inter-ruta, aplicar 3-OPT intra-ruta
 // ─────────────────────────────────────────────────────────────
-Solution VNS::optimize(const Solution& initialSolution) {
+Solution VNS::optimize(const Solution& initialSolution, int maxIter) {
     KOpt kopt(parserData);
     mt19937 rng(42); // Semilla fija para reproducibilidad
 
     // Parámetros VNS
     const int K_MAX        = 5;   // Máximo nivel de shaking
-    const int MAX_ITER     = 100; // Iteraciones sin mejora antes de parar
+    const int MAX_ITER     = maxIter; // Iteraciones sin mejora antes de parar
     // Intensidad de shaking: extraer entre 2 y 2+K clientes
     const int BASE_SHAKE   = 2;
 
