@@ -193,7 +193,7 @@ Solution CbcSolver::solve(int numVehicles, double timeLimitSeconds) {
     Solution initialSol = builder.buildSolution();
 
     VNS vns(parserData);
-    Solution refinedInitialSol = vns.optimize(initialSol);
+    Solution refinedInitialSol = vns.optimize(initialSol, 30);
 
     double* mipStart = new double[numVariables];
     std::fill(mipStart, mipStart + numVariables, 0.0);
@@ -320,7 +320,7 @@ Solution CbcSolver::solve(int numVehicles, double timeLimitSeconds) {
     // Refinamiento final con VNS: pule la solución de CBC
     // (puede mejorar si CBC dejó alguna ruta subóptima por el límite de tiempo)
     double costBeforeVNS = bestSolution.getTotalCost();
-    bestSolution = vns.optimize(bestSolution);
+    bestSolution = vns.optimize(bestSolution, 30);
     cout << "Costo tras refinamiento VNS final: " << bestSolution.getTotalCost();
     if (bestSolution.getTotalCost() < costBeforeVNS)
         cout << "  (mejora de " << costBeforeVNS - bestSolution.getTotalCost() << ")";

@@ -21,7 +21,7 @@ using namespace std;
 // Límite de tiempo para CBC.
 // Usar el mismo valor que TIME_LIMIT_SECONDS en test_BB
 // para una comparación justa entre B&B y CBC.
-const double TIME_LIMIT_SECONDS = 5.0;
+const double TIME_LIMIT_SECONDS = 240.0;
 
 // ─────────────────────────────────────────────────────────────
 // Imprime una solución con detalle de rutas

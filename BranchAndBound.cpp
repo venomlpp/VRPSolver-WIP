@@ -241,6 +241,79 @@ Solution BranchAndBound::roundingHeuristic(const double* solution) const {
     return heuristicSol;
 }
 
+Solution BranchAndBound::lpGuidedConstruction(const double* lpSol) const {
+    int Q   = parserData->getCapacity();
+    int K   = (int)bestSolution.getRoutes().size();
+
+    // Ordenar clientes por x_{0,j} descendente:
+    // el LP "prefiere" arrancar rutas desde los de mayor valor
+    vector<int> clientOrder;
+    for (int j = 1; j < numClients; j++)
+        clientOrder.push_back(j);
+    sort(clientOrder.begin(), clientOrder.end(), [&](int a, int b) {
+        return lpSol[getVarIndex(0, a)] > lpSol[getVarIndex(0, b)];
+    });
+
+    vector<bool> assigned(numClients, false);
+    assigned[0] = true;
+
+    // Fase 1: iniciar exactamente K rutas con los K clientes más
+    // "comprometidos" hacia la bodega según el LP
+    vector<vector<int>> routeClients(K);
+    vector<int> routeLoad(K, 0);
+    int started = 0;
+    for (int j : clientOrder) {
+        if (started >= K) break;
+        routeClients[started].push_back(j);
+        routeLoad[started] += parserData->getClients()[j+1].getDemand();
+        assigned[j] = true;
+        started++;
+    }
+
+    // Fase 2: insertar el resto en la ruta con mejor arco LP disponible
+    for (int j : clientOrder) {
+        if (assigned[j]) continue;
+        int demand = parserData->getClients()[j+1].getDemand();
+
+        int   bestRoute = -1;
+        double bestScore = -1.0;
+
+        for (int r = 0; r < K; r++) {
+            if (routeLoad[r] + demand > Q) continue;
+            // Score = mejor arco LP desde cualquier cliente de la ruta hacia j
+            for (int node : routeClients[r]) {
+                double score = lpSol[getVarIndex(node, j)]
+                             + lpSol[getVarIndex(j, node)]; // arco en ambos sentidos
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestRoute = r;
+                }
+            }
+        }
+
+        if (bestRoute != -1) {
+            routeClients[bestRoute].push_back(j);
+            routeLoad[bestRoute] += demand;
+        } else {
+            // No cabe en ninguna ruta existente: crear ruta extra
+            routeClients.push_back({j});
+            routeLoad.push_back(demand);
+        }
+        assigned[j] = true;
+    }
+
+    // Construir Solution desde los grupos de clientes
+    Solution sol(parserData);
+    for (const auto& clients : routeClients) {
+        if (clients.empty()) continue;
+        Route route(Q, parserData);
+        for (int c : clients)
+            route.addClient(c + 1);
+        sol.addRoute(route);
+    }
+    return sol;
+}
+
 Solution BranchAndBound::solveBestFirst(double timeLimitSeconds) {
     ClpSimplex baseModel;
     baseModel.setLogLevel(0); 
@@ -264,6 +337,7 @@ Solution BranchAndBound::solveBestFirst(double timeLimitSeconds) {
     int nodesExplored = 0;
     int cutsAdded = 0;
     auto startTime = chrono::steady_clock::now();
+    double scaleFactor = 1.0 + 0.4 * std::sqrt((double)numClients / 32.0);
     while (!pq.empty()) {
         auto elapsed = chrono::duration<double>(
             chrono::steady_clock::now() - startTime).count();
@@ -302,21 +376,15 @@ Solution BranchAndBound::solveBestFirst(double timeLimitSeconds) {
 
         const double* solution = baseModel.primalColumnSolution();
         int fractionalVar = getMostFractionalVariable(solution);
-        //Heurística por redondeo
-        Solution roundedSol = roundingHeuristic(solution);
-        // DEBUG TEMPORAL
-        if (nodesExplored % 5000 == 0) {
-            cout << "[DEBUG] roundedSol.isValid() = " << roundedSol.isValid()
-                << " | rutas: " << roundedSol.getRoutes().size()
-                << " | costo: " << roundedSol.getTotalCost() << endl;
-        }     
+        //Heurística por redondeo (LP-guiado)
+        Solution roundedSol = lpGuidedConstruction(solution);
         if (roundedSol.isValid()) {
             // Primero KOpt rápido para filtrar soluciones muy malas
             KOpt kopt(parserData);
             Solution koptSol = kopt.optimize(roundedSol);
     
             // Solo invertir en VNS si KOpt ya está cerca del UB
-            if (koptSol.getTotalCost() < globalUpperBound * 1.1) {
+            if (koptSol.getTotalCost() < globalUpperBound * scaleFactor) {
                 VNS vnsLocal(parserData);
                 Solution refinedSol = vnsLocal.optimize(koptSol, 50);
                 if (refinedSol.getTotalCost() < globalUpperBound) {
@@ -472,17 +540,27 @@ Solution BranchAndBound::solveDepthFirst(double timeLimitSeconds) {
         const double* solution = baseModel.primalColumnSolution();
         int fractionalVar = getMostFractionalVariable(solution);
         //Heurística por redondeo
-        Solution roundedSol = roundingHeuristic(solution);
+        Solution roundedSol = lpGuidedConstruction(solution);
         if (roundedSol.isValid()) {
-            // Le pasamos tu 3-OPT para que refine los errores del redondeo
-            VNS optimizador(parserData);
-            Solution refinedSol = optimizador.optimize(roundedSol, 15);
-            
-            if (refinedSol.getTotalCost() < globalUpperBound) {
-                globalUpperBound = refinedSol.getTotalCost();
-                bestSolution = refinedSol;
-                cout << "\n[HEURÍSTICA DE REDONDEO] ¡BINGO! Nuevo UB encontrado: " 
-                     << globalUpperBound << " en el nodo " << nodesExplored << "\n" << endl;
+            // Primero KOpt rápido para filtrar soluciones muy malas
+            KOpt kopt(parserData);
+            Solution koptSol = kopt.optimize(roundedSol);
+    
+            // Solo invertir en VNS si KOpt ya está cerca del UB
+            if (koptSol.getTotalCost() < globalUpperBound * 1.4) {
+                VNS vnsLocal(parserData);
+                Solution refinedSol = vnsLocal.optimize(koptSol, 50);
+                if (refinedSol.getTotalCost() < globalUpperBound) {
+                    globalUpperBound = refinedSol.getTotalCost();
+                    bestSolution = refinedSol;
+                    cout << "[REDONDEO+VNS] Nuevo UB: " << globalUpperBound
+                        << " en nodo " << nodesExplored << endl;
+                }
+            } else if (koptSol.getTotalCost() < globalUpperBound) {
+                globalUpperBound = koptSol.getTotalCost();
+                bestSolution = koptSol;
+                cout << "[REDONDEO] Nuevo UB: " << globalUpperBound
+                    << " en nodo " << nodesExplored << endl;
             }
         }
 

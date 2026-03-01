@@ -34,6 +34,7 @@ private:
     int getMostFractionalVariable(const double* solution) const;
     Solution convertToSolution(const double* solution) const;
     Solution roundingHeuristic(const double* solution) const;
+    Solution lpGuidedConstruction(const double* lpSol) const;
 
     // NUEVO: Algoritmo de grafos para detectar trampas en la solución entera
     std::vector<std::vector<int>> findInvalidSets(const double* solution) const;
