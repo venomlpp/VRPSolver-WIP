@@ -11,8 +11,15 @@ CBC_LIBS = -lCbc -lCbcSolver -lCgl -lClp -lOsi -lOsiClp -lOsiCbc -lCoinUtils
 # Carpeta donde viven los tests
 TESTS_DIR = tests
 
-# Target por defecto
-all: test_parser test_route test_greedy test_kopt test_vns test_bb test_bbvns test_cbc
+# Target por defecto: Construye el main y todos los tests
+all: main test_parser test_route test_greedy test_kopt test_vns test_bb test_bbvns test_cbc test_alns
+
+# ---------------------------------------------------------------
+# Ejecutable Principal
+# ---------------------------------------------------------------
+
+main: main.o menu.o ALNS.o CbcSolver.o SubtourCut.o BranchAndBound.o VNS.o KOpt.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o
+	$(CXX) $(CXXFLAGS) main.o menu.o ALNS.o CbcSolver.o SubtourCut.o BranchAndBound.o VNS.o KOpt.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o -o main $(CBC_LIBS)
 
 # ---------------------------------------------------------------
 # Ejecutables de Prueba
@@ -43,11 +50,18 @@ test_bbvns: $(TESTS_DIR)/test_bbvns.cpp BranchAndBound.o VNS.o KOpt.o GreedyBuil
 	$(CXX) $(CXXFLAGS) $(TESTS_DIR)/test_bbvns.cpp BranchAndBound.o VNS.o KOpt.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o -o test_bbvns $(LIBS_BASE)
 
 test_alns: tests/test_alns.cpp ALNS.o CbcSolver.o SubtourCut.o VNS.o KOpt.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o
-	$(CXX) $(CXXFLAGS) $(TESTS_DIR)/test_alns.cpp ALNS.o CbcSolver.o SubtourCut.o VNS.o KOpt.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o -o test_alns $(CBC_LIBS)
+	$(CXX) $(CXXFLAGS) tests/test_alns.cpp ALNS.o CbcSolver.o SubtourCut.o VNS.o KOpt.o GreedyBuilder.o Solution.o Route.o Parser.o Client.o -o test_alns $(CBC_LIBS)
+
 # ---------------------------------------------------------------
 # Reglas para compilar objetos (.o)
 # Estos siguen viviendo en la raíz del proyecto
 # ---------------------------------------------------------------
+
+main.o: main.cpp menu.h
+	$(CXX) $(CXXFLAGS) -c main.cpp -o main.o
+
+menu.o: menu.cpp menu.h ALNS.h CbcSolver.h BranchAndBound.h VNS.h KOpt.h GreedyBuilder.h Solution.h Parser.h
+	$(CXX) $(CXXFLAGS) -c menu.cpp -o menu.o
 
 Client.o: Client.cpp Client.h
 	$(CXX) $(CXXFLAGS) -c Client.cpp -o Client.o
@@ -87,4 +101,4 @@ ALNS.o: ALNS.cpp ALNS.h Parser.h Solution.h VNS.h
 # ---------------------------------------------------------------
 
 clean:
-	rm -f *.o test_parser test_route test_greedy test_kopt test_vns test_bb test_cbc test_bbvns test_alns
+	rm -f *.o test_parser test_route test_greedy test_kopt test_vns test_bb test_cbc test_bbvns test_alns main
