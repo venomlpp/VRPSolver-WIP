@@ -1,5 +1,6 @@
 #include "CbcSolver.h"
 #include <iostream>
+#include <unistd.h>
 #include <coin/OsiClpSolverInterface.hpp>
 #include <coin/CbcModel.hpp>
 #include <coin/CoinPackedMatrix.hpp>
@@ -55,7 +56,7 @@ Solution CbcSolver::solve(int numVehicles, double timeLimitSeconds) {
     // 1. Interfaz OSI (CLP como solver LP interno de CBC)
     // =========================================================
     OsiClpSolverInterface osi;
-    osi.setHintParam(OsiDoReducePrint, true); // Silenciar output de CLP
+    osi.setHintParam(OsiDoReducePrint, true);
 
     // =========================================================
     // 2. Definición de variables
@@ -74,10 +75,8 @@ Solution CbcSolver::solve(int numVehicles, double timeLimitSeconds) {
             colLower[idx]  = 0.0;
 
             if (i == j) {
-                colUpper[idx] = 0.0; // Sin autoloops
+                colUpper[idx] = 0.0;
             } else if (i != 0 && j != 0) {
-                // Poda estática: si dos clientes juntos explotan el camión
-                // nunca pueden ser adyacentes en ninguna solución factible
                 int di = parserData->getClients()[i + 1].getDemand();
                 int dj = parserData->getClients()[j + 1].getDemand();
                 colUpper[idx] = (di + dj > Q) ? 0.0 : 1.0;
@@ -87,8 +86,7 @@ Solution CbcSolver::solve(int numVehicles, double timeLimitSeconds) {
         }
     }
 
-    // Variables U_i: carga acumulada del vehículo al llegar al cliente i
-    // (auxiliares para MTZ, no forman parte de la función objetivo)
+    // Variables U_i: carga acumulada (auxiliares MTZ)
     for (int i = 1; i < numClients; ++i) {
         int idx = getUIndex(i);
         objective[idx] = 0.0;
@@ -122,9 +120,7 @@ Solution CbcSolver::solve(int numVehicles, double timeLimitSeconds) {
         rowLowerVec.push_back(1.0); rowUpperVec.push_back(1.0);
     }
 
-    // B. Restricción de flota: entre 1 y K vehículos salen/entran a la bodega.
-    //    MEJORA: usar <= K en vez de == K permite que CBC explore soluciones
-    //    con menos vehículos (a veces producen rutas más cortas).
+    // B. Restricción de flota: entre 1 y K vehículos
     vector<int>    depotOutIdx, depotInIdx;
     vector<double> depotOutEl,  depotInEl;
     for (int j = 1; j < numClients; ++j) {
@@ -137,7 +133,7 @@ Solution CbcSolver::solve(int numVehicles, double timeLimitSeconds) {
     matrix.appendRow(depotInIdx.size(), depotInIdx.data(), depotInEl.data());
     rowLowerVec.push_back(1.0); rowUpperVec.push_back((double)numVehicles);
 
-    // C. Lifted MTZ (Desrochers & Laporte): más fuerte que MTZ estándar.
+    // C. Lifted MTZ (Desrochers & Laporte)
     //    U_i - U_j + Q*X_ij + (Q - d_i - d_j)*X_ji <= Q - d_j
     for (int i = 1; i < numClients; ++i) {
         for (int j = 1; j < numClients; ++j) {
@@ -165,7 +161,6 @@ Solution CbcSolver::solve(int numVehicles, double timeLimitSeconds) {
         }
     }
 
-    // Cargar el modelo completo en OSI
     osi.loadProblem(matrix, colLower, colUpper, objective,
                     rowLowerVec.data(), rowUpperVec.data());
 
@@ -175,7 +170,6 @@ Solution CbcSolver::solve(int numVehicles, double timeLimitSeconds) {
     for (int i = 0; i < numClients; ++i)
         for (int j = 0; j < numClients; ++j)
             osi.setInteger(getVarIndex(i, j));
-    // Nota: U_i son continuas, no se declaran enteras (MTZ solo necesita eso)
 
     // =========================================================
     // 5. Crear el modelo CBC
@@ -185,9 +179,6 @@ Solution CbcSolver::solve(int numVehicles, double timeLimitSeconds) {
 
     // =========================================================
     // 6. Warm Start: Clarke-Wright + VNS
-    //    Le entregamos a CBC una solución inicial de alta calidad.
-    //    Esto establece una cota superior (UB) ajustada desde el
-    //    primer nodo, lo que permite podar ramas mucho antes.
     // =========================================================
     GreedyBuilder builder(parserData);
     Solution initialSol = builder.buildSolution();
@@ -198,21 +189,18 @@ Solution CbcSolver::solve(int numVehicles, double timeLimitSeconds) {
     double* mipStart = new double[numVariables];
     std::fill(mipStart, mipStart + numVariables, 0.0);
 
-    // Mapear las rutas VNS a variables binarias X_ij = 1.0
     for (const auto& route : refinedInitialSol.getRoutes()) {
         const auto& path = route.getPath();
         for (size_t i = 0; i < path.size() - 1; ++i)
             mipStart[getVarIndex(path[i] - 1, path[i + 1] - 1)] = 1.0;
     }
 
-    // También rellenar variables U_i en el warm start con valores factibles
-    // (mejora la aceptación del MIP start por parte de CBC)
     for (const auto& route : refinedInitialSol.getRoutes()) {
         const auto& path = route.getPath();
         int accumulatedLoad = 0;
         for (size_t i = 1; i < path.size() - 1; ++i) {
-            int clientId = path[i];   // ID con base 1 (path usa IDs reales)
-            int lpIndex  = clientId - 1; // Índice LP base 0
+            int clientId = path[i];
+            int lpIndex  = clientId - 1;
             accumulatedLoad += parserData->getClients()[clientId].getDemand();
             if (lpIndex >= 1 && lpIndex < numClients)
                 mipStart[getUIndex(lpIndex)] = accumulatedLoad;
@@ -220,14 +208,10 @@ Solution CbcSolver::solve(int numVehicles, double timeLimitSeconds) {
     }
 
     model.setBestSolution(mipStart, numVariables, refinedInitialSol.getTotalCost());
-
-    // MEJORA: +0.999 evita que CBC poda la solución óptima por error de
-    // punto flotante cuando los costos son enteros
     model.setCutoff(refinedInitialSol.getTotalCost() + 0.999);
 
     // =========================================================
     // 7. Prioridades de ramificación
-    //    X_ij primero (definen las rutas), U_i después (auxiliares MTZ)
     // =========================================================
     int* priorities = new int[numVariables];
     for (int i = 0; i < numVariables; i++) priorities[i] = 1000;
@@ -238,9 +222,6 @@ Solution CbcSolver::solve(int numVehicles, double timeLimitSeconds) {
 
     // =========================================================
     // 8. Cortes DFJ lazy (SubtourCutGenerator)
-    //    Detecta subtours y violaciones de capacidad en cada nodo
-    //    e inyecta cortes DFJ. Complementa el MTZ levantando el LB
-    //    mucho más rápido que MTZ solo.
     // =========================================================
     SubtourCutGenerator subtourGen(parserData, numClients);
     model.addCutGenerator(&subtourGen, 1, "SubtourDFJ");
@@ -248,59 +229,63 @@ Solution CbcSolver::solve(int numVehicles, double timeLimitSeconds) {
     // =========================================================
     // 9. Cortes internos de CBC/CGL
     // =========================================================
-
-    // Gomory cuts: derivan de la base simplex, muy efectivos para MILP
     CglGomory gomory;
     gomory.setLimit(100);
     model.addCutGenerator(&gomory, 1, "Gomory");
 
-    // Mixed Integer Rounding: complementa a Gomory en variables mixtas
     CglMixedIntegerRounding2 mir;
     model.addCutGenerator(&mir, 1, "MIR");
 
-    // Clique cuts: útiles dado que tenemos restricciones de 2-ciclos
     CglClique clique;
     model.addCutGenerator(&clique, 1, "Clique");
 
     // =========================================================
     // 10. Heurísticas internas de CBC
-    //     Buscan soluciones enteras factibles sin explorar el árbol completo
     // =========================================================
-
-    // Feasibility Pump: proyecta la solución LP hacia factibilidad entera
     CbcHeuristicFPump fpump(model);
     fpump.setMaximumPasses(30);
     model.addHeuristic(&fpump, "FeasibilityPump");
 
-    // RINS: fija variables que coinciden entre la solución LP y la mejor
-    // solución entera conocida, y resuelve el subproblema reducido
     CbcHeuristicRINS rins(model);
-    rins.setWhen(10); // Ejecutar cada 10 nodos
+    rins.setWhen(10);
     model.addHeuristic(&rins, "RINS");
 
     // =========================================================
-    // 11. Límite de tiempo (reemplaza límite de nodos)
-    //     Con MTZ+DFJ el árbol puede ser muy profundo; el tiempo
-    //     es un límite más robusto que el número de nodos.
+    // 11. Límite de tiempo
     // =========================================================
-    model.setMaximumSeconds(timeLimitSeconds); // tiempo ajustable arriba
+    model.setMaximumSeconds(timeLimitSeconds);
 
     // =========================================================
     // 12. Resolver
     // =========================================================
-    cout << "\n=== INICIANDO CBC BRANCH & CUT (MTZ + DFJ + VNS) ===" << endl;
-    cout << "Costo VNS inicial inyectado como warm start: "
-         << refinedInitialSol.getTotalCost() << endl;
+
+    // Handler: reportes compactos + VNS sobre cada solución entera encontrada
+    CbcProgressHandler progressHandler(parserData, &vns);
+    model.passInEventHandler(&progressHandler);
+
+    cout << "\n=== CBC | " << numClients << " clientes"
+         << " | Warm start: " << refinedInitialSol.getTotalCost()
+         << " | Limite: " << timeLimitSeconds << "s ===" << endl;
+
+    // Suprimir stdout interno de CBC/CGL (clique cuts, gomory, etc.)
+    int savedStdout = dup(STDOUT_FILENO);
+    freopen("/dev/null", "w", stdout);
 
     model.branchAndBound();
+
+    // Restaurar stdout para que los prints posteriores sean visibles
+    fflush(stdout);
+    dup2(savedStdout, STDOUT_FILENO);
+    close(savedStdout);
+    std::cout.clear();
 
     // =========================================================
     // 13. Extraer y refinar la mejor solución encontrada
     // =========================================================
     Solution bestSolution(parserData);
 
-    bool hasRealSolution = (model.bestSolution() != nullptr) 
-                    && (model.getObjValue() < 1e+49);
+    bool hasRealSolution = (model.bestSolution() != nullptr)
+                        && (model.getObjValue() < 1e+49);
 
     if (model.isProvenOptimal()) {
         cout << "\nCBC encontro solucion OPTIMA. Costo: " << model.getObjValue() << endl;
@@ -314,11 +299,10 @@ Solution CbcSolver::solve(int numVehicles, double timeLimitSeconds) {
         bestSolution = convertToSolution(model.bestSolution());
     } else {
         cout << "\nCBC no encontro solucion entera (problema infactible o sin solucion)." << endl;
-        bestSolution = refinedInitialSol; // Retorna warm start como fallback
+        bestSolution = refinedInitialSol;
     }
 
-    // Refinamiento final con VNS: pule la solución de CBC
-    // (puede mejorar si CBC dejó alguna ruta subóptima por el límite de tiempo)
+    // Refinamiento final con VNS
     double costBeforeVNS = bestSolution.getTotalCost();
     bestSolution = vns.optimize(bestSolution, 30);
     cout << "Costo tras refinamiento VNS final: " << bestSolution.getTotalCost();
