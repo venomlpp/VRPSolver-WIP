@@ -17,7 +17,7 @@
 
 using namespace std;
 
-const double TIME_LIMIT_SECONDS = 240.0;
+const double TIME_LIMIT_SECONDS = 120.0;
 
 // ─────────────────────────────────────────────────────────────
 // Imprime una solución con detalle de rutas

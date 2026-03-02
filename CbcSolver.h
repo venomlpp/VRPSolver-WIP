@@ -14,12 +14,6 @@
 
 // ─────────────────────────────────────────────────────────────
 // CbcProgressHandler
-// Intercepta eventos de CBC para:
-//   1. Reportar progreso cada 1000 nodos (similar al debug de B&B).
-//   2. Aplicar VNS sobre cada nueva solución entera encontrada,
-//      igual que hace B&B con lpGuidedConstruction+VNS.
-//      Si VNS mejora la solución, la reinyecta en CBC como nueva
-//      incumbente con UB más bajo, activando más poda.
 // ─────────────────────────────────────────────────────────────
 class CbcProgressHandler : public CbcEventHandler {
 public:
@@ -35,29 +29,23 @@ public:
         double gap   = (ub < 1e49 && lb > -1e49) ?
                        100.0 * (ub - lb) / ub : 100.0;
 
-        // Reporte periódico cada 1000 nodos
         if (nodes - lastReportNodes >= 1000) {
             lastReportNodes = nodes;
             std::cerr << "[CBC] Nodos: " << nodes
                       << " | LB: "  << lb
                       << " | UB: "  << (ub < 1e49 ? ub : -1.0)
-                      << " | GAP: " << gap << "%"
-                      << std::endl;
+                      << " | GAP: " << gap << "%" << std::endl;
         }
 
-        // Nueva solución entera encontrada: refinar con VNS
         if (whichEvent == solution && model_->bestSolution()) {
             double costBefore = ub;
-
             Solution cbcSol = convertToSolution(model_->bestSolution());
             if (cbcSol.isValid()) {
                 Solution refined = vnsPtr->optimize(cbcSol, 20);
-                std::cerr << "[CBC+VNS] Solucion " << (int)costBefore
-                          << " -> " << refined.getTotalCost()
-                          << " en nodo " << nodes << std::endl;
-
-                // Si VNS mejoró, reinyectar en CBC como nueva incumbente
                 if (refined.getTotalCost() < costBefore - 0.5) {
+                    std::cerr << "[CBC+VNS] Solucion " << (int)costBefore
+                              << " -> " << refined.getTotalCost()
+                              << " en nodo " << nodes << std::endl;
                     int n = parserData->getDimension();
                     int numVars = n * n + (n - 1);
                     std::vector<double> newSol(numVars, 0.0);
@@ -72,7 +60,6 @@ public:
                 }
             }
         }
-
         return noAction;
     }
 
@@ -120,12 +107,27 @@ private:
     int getUIndex(int i) const;
     Solution convertToSolution(const double* solution) const;
 
+    // Helper de solveSubproblem: combina mini-rutas CBC con los stubs
+    // de las rutas afectadas por el destroy, respetando capacidad Q.
+    Solution mergeSubproblemResult(
+        const std::vector<Route>&          fixedRoutes,
+        const std::vector<std::vector<int>>& stubs,
+        const std::vector<int>&            stubLoads,
+        const std::vector<std::vector<int>>& miniRoutes) const;
+
 public:
     explicit CbcSolver(const Parser* parser);
 
-    // Resuelve el problema usando el motor exacto CBC de COIN-OR
-    // con cortes DFJ, heurísticas internas y refinamiento VNS
-    Solution solve(int numVehicles, double timeLimitSeconds = 120.0);
+    // Solver completo: CW + VNS warm start + B&C + VNS final
+    Solution solve(const Solution& warmStart, double timeLimitSeconds = 120.0);
+
+    // Subproblema LNS-MIP: dado currentSol y la lista de clientes
+    // "liberados" por el destroy, construye un mini-CVRP con solo
+    // esos clientes, lo resuelve con CBC y reconstruye la solución
+    // completa fusionando con los stubs de las rutas afectadas.
+    Solution solveSubproblem(const Solution&          currentSol,
+                             const std::vector<int>&  freeClients,
+                             double                   timeLimitSeconds = 1.0);
 };
 
 #endif // CBC_SOLVER_H

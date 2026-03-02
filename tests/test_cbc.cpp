@@ -21,7 +21,7 @@ using namespace std;
 // Límite de tiempo para CBC.
 // Usar el mismo valor que TIME_LIMIT_SECONDS en test_BB
 // para una comparación justa entre B&B y CBC.
-const double TIME_LIMIT_SECONDS = 5.0;
+const double TIME_LIMIT_SECONDS = 120.0;
 
 // ─────────────────────────────────────────────────────────────
 // Imprime una solución con detalle de rutas
@@ -59,12 +59,9 @@ void testCbcValidity(const Parser& parser) {
     GreedyBuilder builder(&parser);
     VNS vns(&parser);
     Solution vnsSol = vns.optimize(builder.buildSolution());
-    int K = deduceVehicles(vnsSol);
-
-    cout << "Vehiculos deducidos desde VNS: " << K << endl;
 
     CbcSolver cbc(&parser);
-    Solution cbcSol = cbc.solve(K, TIME_LIMIT_SECONDS);
+    Solution cbcSol = cbc.solve(vnsSol, TIME_LIMIT_SECONDS);
 
     assert(cbcSol.isValid() &&
            "ERROR: CBC produjo una solucion invalida (subtour o violacion de capacidad).");
@@ -84,12 +81,11 @@ void testCbcNotWorseVNS(const Parser& parser) {
     GreedyBuilder builder(&parser);
     VNS vns(&parser);
     Solution vnsSol = vns.optimize(builder.buildSolution());
-    int K = deduceVehicles(vnsSol);
 
     cout << "Costo VNS (warm start): " << vnsSol.getTotalCost() << endl;
 
     CbcSolver cbc(&parser);
-    Solution cbcSol = cbc.solve(K, TIME_LIMIT_SECONDS);
+    Solution cbcSol = cbc.solve(vnsSol, TIME_LIMIT_SECONDS);
 
     cout << "Costo CBC (resultado) : " << cbcSol.getTotalCost() << endl;
 
@@ -118,9 +114,8 @@ void testFullPipeline(const Parser& parser) {
     Solution vnsSol = vns.optimize(cwSol);
     assert(vnsSol.isValid() && "ERROR: VNS produjo solucion invalida.");
 
-    int K = deduceVehicles(vnsSol);
     CbcSolver cbc(&parser);
-    Solution cbcSol = cbc.solve(K, TIME_LIMIT_SECONDS);
+    Solution cbcSol = cbc.solve(vnsSol, TIME_LIMIT_SECONDS);
     assert(cbcSol.isValid() && "ERROR: CBC produjo solucion invalida.");
 
     cout << "\n=== RESUMEN DEL PIPELINE ===" << endl;
@@ -149,40 +144,6 @@ void testFullPipeline(const Parser& parser) {
 // ─────────────────────────────────────────────────────────────
 // Test 4: CBC con K-1 vehículos
 // ─────────────────────────────────────────────────────────────
-void testCbcFewerVehicles(const Parser& parser) {
-    cout << "\n========================================" << endl;
-    cout << "TEST 4: CBC con K-1 vehiculos" << endl;
-    cout << "========================================" << endl;
-
-    GreedyBuilder builder(&parser);
-    VNS vns(&parser);
-    Solution vnsSol = vns.optimize(builder.buildSolution());
-    int K = deduceVehicles(vnsSol);
-
-    if (K <= 1) {
-        cout << "SKIP: No es posible reducir vehiculos (K=" << K << ")." << endl;
-        return;
-    }
-
-    int K_reduced = K - 1;
-    cout << "K original: " << K << " | K reducido: " << K_reduced << endl;
-    cout << "Costo VNS con K=" << K << ": " << vnsSol.getTotalCost() << endl;
-
-    CbcSolver cbc(&parser);
-    Solution cbcSol = cbc.solve(K_reduced, TIME_LIMIT_SECONDS);
-
-    if (cbcSol.getRoutes().empty()) {
-        cout << "CBC no encontro solucion factible con K=" << K_reduced
-             << " (esperado si la demanda total es alta)." << endl;
-    } else {
-        assert(cbcSol.isValid() &&
-               "ERROR: CBC produjo solucion invalida con K reducido.");
-        cout << "Costo CBC con K=" << K_reduced << ": " << cbcSol.getTotalCost() << endl;
-        printSolution(cbcSol, "Solucion CBC con K-1 vehiculos");
-    }
-
-    cout << "PASS: CBC manejo K-1 vehiculos sin caerse." << endl;
-}
 
 // ─────────────────────────────────────────────────────────────
 // Main
@@ -206,7 +167,6 @@ int main(int argc, char* argv[]) {
     // testCbcValidity(parser);
     // testCbcNotWorseVNS(parser);
     testFullPipeline(parser);
-    // testCbcFewerVehicles(parser);
 
     cout << "\n========================================" << endl;
     cout << "  TODOS LOS TESTS PASARON" << endl;
