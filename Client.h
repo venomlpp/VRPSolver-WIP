@@ -1,6 +1,11 @@
 #ifndef CLIENT_H
 #define CLIENT_H
 
+/*
+ * Clase Client
+ * Descripción: Representa un nodo o cliente dentro del problema CVRP, almacenando
+ * su identificador, coordenadas espaciales y demanda de carga.
+ */
 class Client {
 private:
     int id;
@@ -9,17 +14,14 @@ private:
     int demand;
 
 public:
-    // Constructores
     Client();
     Client(int id, double x, double y, int demand);
 
-    // Getters
     int getId() const;
     double getX() const;
     double getY() const;
     int getDemand() const;
 
-    // Destructor
     ~Client();
 };
 

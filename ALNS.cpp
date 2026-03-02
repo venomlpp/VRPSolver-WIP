@@ -9,42 +9,46 @@ using namespace std;
 using chrono::steady_clock;
 using chrono::duration;
 
+/*
+ * Descripción: Constructor de la metaheurística ALNS.
+ * Entrada: Puntero a la instancia del parser, puntero al solver exacto CBC.
+ * Salida: Instancia de la clase inicializada.
+ */
 ALNS::ALNS(const Parser* parser, CbcSolver* cbc)
-    : parserData(parser), cbcSolver(cbc), vns(parser),
-      rng(42) // seed fija para reproducibilidad
-{}
+    : parserData(parser), cbcSolver(cbc), vns(parser), rng(42) {}
 
-// =============================================================================
-// optimize
-// =============================================================================
+/*
+ * Descripción: Bucle principal de optimización. Alterna heurísticas de destrucción con reparación 
+ * exacta MIP. Utiliza un esquema de aceptación basado en Recocido Simulado (SA) 
+ * para escapar de óptimos locales.
+ * Entrada: Solución base (initialSol), límite de tiempo de ejecución en segundos.
+ * Salida: La mejor solución factible encontrada durante el ciclo.
+ */
 Solution ALNS::optimize(const Solution& initialSol, double timeLimitSeconds) {
     auto startTime = steady_clock::now();
-
+    double bigM = initialSol.getTotalCost() * 0.5;
+    
     Solution bestSol    = initialSol;
     Solution currentSol = initialSol;
 
     int iteration = 0;
 
-    // Pesos adaptativos de los operadores
     vector<double> weights   = {1.0, 1.0, 1.0};
     vector<int>    successes = {0,   0,   0  };
     vector<int>    attempts  = {0,   0,   0  };
 
-    // Parámetros para Simulated Annealing atado al reloj
     double T_start = initialSol.getTotalCost() * 0.05; 
     double T_end   = 0.1;
 
-    // --- NUEVO: Escalada Dinámica de Destrucción ---
-    int currentDestroySize = 6; // Empezamos con subproblemas pequeñitos y ultrarrápidos
-    const int maxDestroySize = min(16, parserData->getDimension() / 4); // Cota máxima
+    int currentDestroySize = 6; 
+    const int maxDestroySize = min(16, parserData->getDimension() / 4);
     int noImprovementCounter = 0;
-    const int MAX_NO_IMPROVE = 15; // Iteraciones de paciencia antes de subir la destrucción
+    const int MAX_NO_IMPROVE = 15; 
 
     cout << "[ALNS] Inicio | Costo: " << bestSol.getTotalCost()
          << " | destroySize dinamico: " << currentDestroySize << " a " << maxDestroySize << endl;
 
     while (true) {
-        // Verificar tiempo
         double elapsed = duration<double>(steady_clock::now() - startTime).count();
         if (elapsed >= timeLimitSeconds) break;
 
@@ -61,17 +65,17 @@ Solution ALNS::optimize(const Solution& initialSol, double timeLimitSeconds) {
 
         attempts[opIdx]++;
 
-        // ── 2. Destroy (usando el tamaño dinámico) ───────────────────────
+        // ── 2. Destroy ───────────────────────────────────────────────────
         vector<int> removed;
         switch (opIdx) {
-            case 0: removed = shawRemoval  (currentSol, currentDestroySize); break;
-            case 1: removed = worstRemoval (currentSol, currentDestroySize); break;
+            case 0: removed = shawRemoval(currentSol, currentDestroySize); break;
+            case 1: removed = worstRemoval(currentSol, currentDestroySize); break;
             case 2: removed = randomRemoval(currentSol, currentDestroySize); break;
         }
 
         if (removed.empty()) continue;
 
-        // ── 3. CBC Repair ─────────────────────────────────────────────────
+        // ── 3. CBC Repair ────────────────────────────────────────────────
         double timeLeft = timeLimitSeconds - elapsed;
         double subproblemLimit = min(2.0, timeLeft * 0.1); 
 
@@ -79,62 +83,40 @@ Solution ALNS::optimize(const Solution& initialSol, double timeLimitSeconds) {
 
         if (!repairedSol.isValid()) continue;
 
-        // ── 4. VNS Polish ─────────────────────────────────────────────────
+        // ── 4. VNS Polish ────────────────────────────────────────────────
         Solution polishedSol = vns.optimize(repairedSol, vnsIter);
 
-        // ── 5. Aceptación (Simulated Annealing) ───────────────────────────
-        double currentCost   = currentSol.getTotalCost();
-        double repairedCost  = repairedSol.getTotalCost();
+        // ── 5. Aceptación (Simulated Annealing) ──────────────────────────
+        double currentCost = currentSol.getTotalCost();
         
-        // Filtrar rutas vacías que el VNS haya podido dejar
         Solution cleanedSol(parserData);
-        for (const auto& r : polishedSol.getRoutes()) {
-            if (r.getPath().size() > 2) cleanedSol.addRoute(r);
+        for (const auto& route : polishedSol.getRoutes()) {
+            if (route.getPath().size() > 2) {
+                cleanedSol.addRoute(route);
+            }
         }
         
         double newCost = cleanedSol.getTotalCost();
 
-        // --- PENALIZACIÓN POR INFLACIÓN DE FLOTA (BIG M) ---
+        // Castigo matemático para descartar ramificaciones que rompan el Bin Packing
         int baseK = initialSol.getRoutes().size();
         int newK  = cleanedSol.getRoutes().size();
         if (newK > baseK) {
-            newCost += 5000.0 * (newK - baseK); // Destruye el costo si agrega camiones
+            newCost += bigM * (newK - baseK); 
         }
 
         double delta = newCost - currentCost;
-
         double progress = elapsed / timeLimitSeconds; 
         double T = T_start * pow(T_end / T_start, progress);
 
         bool accept = false;
-        double p = 0.0, prob_r = 0.0;
-
         if (delta < -0.01) {
             accept = true;
         } else {
-            p = exp(-delta / T);
-            prob_r = uniform_real_distribution<double>(0.0, 1.0)(rng);
+            double p = exp(-delta / T);
+            double prob_r = uniform_real_distribution<double>(0.0, 1.0)(rng);
             if (prob_r < p) accept = true;
         }
-
-        // --- DEBUG PRINT (TRAZABILIDAD POR ITERACIÓN) ---
-        cout << "[ALNS Debug] It: " << iteration 
-             << " | Op: " << opIdx 
-             << " | Destr: " << currentDestroySize
-             << " | Base: " << currentCost 
-             << " | Repaired(CBC): " << repairedCost 
-             << " | Polished(VNS): " << cleanedSol.getTotalCost() 
-             << " | K: " << newK
-             << " | Delta: " << delta;
-
-        if (delta < -0.01) {
-            cout << " | ACCEPT (Mejora estricta)\\n";
-        } else {
-            cout << " | T: " << T << " | P: " << p << " | R: " << prob_r;
-            if (accept) cout << " | ACCEPT (SA)\\n";
-            else        cout << " | REJECT\\n";
-        }
-        // ------------------------------------------------
 
         if (accept) {
             currentSol = cleanedSol;
@@ -144,7 +126,7 @@ Solution ALNS::optimize(const Solution& initialSol, double timeLimitSeconds) {
                 bestSol = cleanedSol;
                 currentDestroySize = 6; 
                 noImprovementCounter = 0;
-                cout << "   ---> [NUEVO OPTIMO GLOBAL]: " << bestSol.getTotalCost() << "\\n";
+                cout << "   ---> [NUEVO OPTIMO GLOBAL]: " << bestSol.getTotalCost() << "\n";
             } else {
                 noImprovementCounter++; 
             }
@@ -152,13 +134,12 @@ Solution ALNS::optimize(const Solution& initialSol, double timeLimitSeconds) {
             noImprovementCounter++; 
         }
 
-        // --- SUBIR LA DESTRUCCIÓN SI ESTAMOS ATASCADOS ---
         if (noImprovementCounter >= MAX_NO_IMPROVE) {
             currentDestroySize = min(maxDestroySize, currentDestroySize + 3);
-            noImprovementCounter = 0; // Reiniciamos contador para el siguiente salto
+            noImprovementCounter = 0; 
         }
 
-        // ── 6. Actualizar pesos adaptativos cada 20 iteraciones ───────────
+        // ── 6. Actualizar pesos adaptativos ──────────
         if (iteration % 20 == 0) {
             for (int i = 0; i < 3; i++) {
                 if (attempts[i] > 0) {
@@ -178,30 +159,29 @@ Solution ALNS::optimize(const Solution& initialSol, double timeLimitSeconds) {
 
     return bestSol;
 }
-// =============================================================================
-// shawRemoval
-// Extrae k clientes comenzando por uno aleatorio, luego agrega los más
-// cercanos a él usando distancia geográfica como medida de "relación".
-// =============================================================================
+
+/*
+ * Descripción: Operador de destrucción espacial. Extrae un cliente aleatorio y sus vecinos más cercanos.
+ * Entrada: Solución actual, cantidad 'k' de nodos a extraer.
+ * Salida: Vector con los IDs de los clientes removidos.
+ */
 vector<int> ALNS::shawRemoval(const Solution& sol, int k) {
     const auto& routes = sol.getRoutes();
-
-    // Recolectar todos los clientes presentes en la solución
     vector<int> allClients;
+    
     for (const auto& route : routes) {
         const auto& path = route.getPath();
-        for (size_t i = 1; i < path.size() - 1; ++i)
+        for (size_t i = 1; i < path.size() - 1; ++i) {
             allClients.push_back(path[i]);
+        }
     }
 
     if (allClients.empty()) return {};
     k = min(k, (int)allClients.size());
 
-    // Elegir cliente semilla al azar
-    int seedIdx  = uniform_int_distribution<int>(0, allClients.size()-1)(rng);
+    int seedIdx  = uniform_int_distribution<int>(0, allClients.size() - 1)(rng);
     int seedClient = allClients[seedIdx];
 
-    // Ordenar el resto por distancia al cliente semilla
     vector<pair<double,int>> byDistance;
     for (int c : allClients) {
         if (c == seedClient) continue;
@@ -211,23 +191,24 @@ vector<int> ALNS::shawRemoval(const Solution& sol, int k) {
     sort(byDistance.begin(), byDistance.end());
 
     vector<int> removed = {seedClient};
-    for (int i = 0; i < k - 1 && i < (int)byDistance.size(); ++i)
+    for (int i = 0; i < k - 1 && i < (int)byDistance.size(); ++i) {
         removed.push_back(byDistance[i].second);
+    }
 
     return removed;
 }
 
-// =============================================================================
-// worstRemoval
-// Extrae los k clientes cuya eliminación produce el mayor ahorro en costo,
-// es decir, los que están peor insertados en sus rutas actuales.
-// =============================================================================
+/*
+ * Descripción: Operador de destrucción por costo. Extrae los nodos que presentan la peor 
+ * eficiencia de ruteo (mayor ahorro al ser removidos).
+ * Entrada: Solución actual, cantidad 'k' de nodos a extraer.
+ * Salida: Vector con los IDs de los clientes removidos.
+ */
 vector<int> ALNS::worstRemoval(const Solution& sol, int k) {
     vector<pair<double,int>> savings;
 
     for (const auto& route : sol.getRoutes()) {
         const auto& path = route.getPath();
-        // path[0] y path.back() son la bodega (ID=1 en base 1)
         for (size_t i = 1; i < path.size() - 1; ++i) {
             int prev   = path[i-1];
             int curr   = path[i];
@@ -237,7 +218,6 @@ vector<int> ALNS::worstRemoval(const Solution& sol, int k) {
         }
     }
 
-    // Ordenar de mayor a menor ahorro
     sort(savings.begin(), savings.end(),
          [](const pair<double,int>& a, const pair<double,int>& b){
              return a.first > b.first;
@@ -245,22 +225,26 @@ vector<int> ALNS::worstRemoval(const Solution& sol, int k) {
 
     k = min(k, (int)savings.size());
     vector<int> removed;
-    for (int i = 0; i < k; ++i)
+    for (int i = 0; i < k; ++i) {
         removed.push_back(savings[i].second);
+    }
 
     return removed;
 }
 
-// =============================================================================
-// randomRemoval
-// Extrae k clientes seleccionados uniformemente al azar.
-// =============================================================================
+/*
+ * Descripción: Operador de destrucción aleatoria para favorecer la diversificación del espacio de búsqueda.
+ * Entrada: Solución actual, cantidad 'k' de nodos a extraer.
+ * Salida: Vector con los IDs de los clientes removidos.
+ */
 vector<int> ALNS::randomRemoval(const Solution& sol, int k) {
     vector<int> allClients;
+    
     for (const auto& route : sol.getRoutes()) {
         const auto& path = route.getPath();
-        for (size_t i = 1; i < path.size() - 1; ++i)
+        for (size_t i = 1; i < path.size() - 1; ++i) {
             allClients.push_back(path[i]);
+        }
     }
 
     if (allClients.empty()) return {};
@@ -270,23 +254,22 @@ vector<int> ALNS::randomRemoval(const Solution& sol, int k) {
     return vector<int>(allClients.begin(), allClients.begin() + k);
 }
 
-// =============================================================================
-// insertionCost
-// Costo de insertar clientId entre los nodos prev y next.
-// Δ = d(prev,client) + d(client,next) - d(prev,next)
-// =============================================================================
+/*
+ * Descripción: Evalúa la variación en la función objetivo al insertar un nodo entre otros dos.
+ * Entrada: ID del cliente a evaluar, ID del cliente previo, ID del cliente siguiente.
+ * Salida: Variación del costo.
+ */
 double ALNS::insertionCost(int clientId, int prev, int next) const {
     return parserData->getDistance(prev, clientId)
          + parserData->getDistance(clientId, next)
          - parserData->getDistance(prev, next);
 }
 
-// =============================================================================
-// removalSavings
-// Ahorro de eliminar clientId que está entre prev y next.
-// savings = d(prev,client) + d(client,next) - d(prev,next)
-// (mismo valor que insertionCost: es el costo diferencial del arco)
-// =============================================================================
+/*
+ * Descripción: Evalúa el ahorro producido al quitar un nodo de su posición actual.
+ * Entrada: ID del cliente a evaluar, ID del cliente previo, ID del cliente siguiente.
+ * Salida: Ahorro de la eliminación.
+ */
 double ALNS::removalSavings(int clientId, int prev, int next) const {
     return parserData->getDistance(prev, clientId)
          + parserData->getDistance(clientId, next)

@@ -20,6 +20,12 @@ struct BBNode {
     }
 };
 
+/*
+ * Clase BranchAndBound
+ * Descripción: Implementa un método exacto guiado por relajación lineal (CLP).
+ * Genera cortes dinámicos (DFJ) en el árbol de búsqueda para evitar subtours
+ * y violaciones de capacidad sin sobrecargar el modelo inicial.
+ */
 class BranchAndBound {
 private:
     const Parser* parserData;
@@ -36,7 +42,6 @@ private:
     Solution roundingHeuristic(const double* solution) const;
     Solution lpGuidedConstruction(const double* lpSol) const;
 
-    // NUEVO: Algoritmo de grafos para detectar trampas en la solución entera
     std::vector<std::vector<int>> findInvalidSets(const double* solution) const;
 
 public:

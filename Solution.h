@@ -5,35 +5,33 @@
 #include "Route.h"
 #include "Parser.h"
 
+/*
+ * Clase Solution
+ * Descripción: Representa una solución completa para el problema CVRP.
+ * Agrupa el conjunto de rutas asignadas a la flota de vehículos, 
+ * gestiona el costo total (función objetivo) y valida su factibilidad global.
+ */
 class Solution {
 private:
-    const Parser* parserData;       // Referencia al problema global
-    std::vector<Route> routes;      // El conjunto de rutas (vehículos)
-    double totalCost;               // Valor de la función objetivo Z
+    const Parser* parserData;       
+    std::vector<Route> routes;      
+    double totalCost;               
 
-    // Método interno para recalcular el costo total sumando las rutas
     void calculateTotalCost();
 
 public:
-    // Constructores
     Solution();
     explicit Solution(const Parser* parser);
 
-    // Manipulación de la solución
     void addRoute(const Route& route);
     
-    // El método más crítico: Valida que TODOS los clientes sean visitados exactamente una vez
-    // y que ninguna ruta rompa las reglas de capacidad o subtours.
     bool isValid() const;
 
-    // Getters
     double getTotalCost() const;
     const std::vector<Route>& getRoutes() const;
 
-    // Equivalente a tu método "imprimir()" en Corte
     void print() const;
     
-    // Destructor
     ~Solution();
 };
 

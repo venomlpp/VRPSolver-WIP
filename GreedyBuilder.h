@@ -5,18 +5,19 @@
 #include "Solution.h"
 #include <vector>
 
+/*
+ * Clase GreedyBuilder
+ * Descripción: Implementa el algoritmo constructivo heurístico de Ahorros 
+ * de Clarke-Wright para generar una solución inicial factible y de buena calidad
+ * para el problema CVRP.
+ */
 class GreedyBuilder {
 private:
     const Parser* parserData;
 
 public:
-    // Constructor: Solo requiere el parser para acceder a los datos
     explicit GreedyBuilder(const Parser* parser);
-
-    // Método principal: Construye y retorna una solución válida usando Clarke-Wright
     Solution buildSolution();
-
-    // Destructor
     ~GreedyBuilder();
 };
 

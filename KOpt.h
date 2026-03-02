@@ -5,19 +5,21 @@
 #include "Parser.h"
 #include "Route.h"
 
+/*
+ * Clase KOpt
+ * Descripción: Implementa la heurística de búsqueda local intra-ruta 3-OPT.
+ * Se encarga de refinar iterativamente las rutas rompiendo hasta tres aristas 
+ * y reconectando los segmentos resultantes para encontrar un mínimo local.
+ */
 class KOpt {
 private:
     const Parser* parserData;
 
-    // Método privado central: Toma una ruta y la optimiza exhaustivamente usando 3-OPT.
-    // Retorna la misma ruta optimizada.
     Route optimizeRoute(const Route& route);
 
 public:
-    // Constructor que recibe el entorno (matriz de distancias, etc.)
     explicit KOpt(const Parser* parser);
 
-    // Método principal: Toma la solución del Greedy y le aplica 3-OPT a TODAS sus rutas
     Solution optimize(const Solution& initialSolution);
 
     ~KOpt();

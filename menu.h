@@ -7,7 +7,6 @@
 #include <memory>
 #include <chrono>
 
-// Incluimos los headers del core del proyecto
 #include "Parser.h"
 #include "Solution.h"
 #include "GreedyBuilder.h"
@@ -17,6 +16,12 @@
 #include "CbcSolver.h"
 #include "ALNS.h"
 
+/*
+ * Clase Menu
+ * Descripción: Interfaz de usuario por consola para interactuar con 
+ * los distintos algoritmos de resolución del problema CVRP. Administra 
+ * el estado global de la ejecución y el manejo de instancias.
+ */
 class Menu {
 private:
     std::unique_ptr<Parser> parserGlobal;
@@ -24,12 +29,12 @@ private:
     bool instanciaCargada;
     double tiempoLimiteGlobal;
 
-    // Métodos auxiliares privados
+    // ── Métodos auxiliares privados ───────────────────────────
     void mostrarEncabezado() const;
     void reportarTiempo(double tiempoTotal) const;
     void actualizarMejorSolucion(const Solution& solActual, const std::string& algoritmo);
 
-    // Opciones del Menú
+    // ── Opciones del Menú ─────────────────────────────────────
     void cargarInstancia();
     void configurarTiempo();
     void ejecutar3OPT();
@@ -38,8 +43,8 @@ private:
     void ingresoManual();
 
 public:
-    Menu();              // Constructor
-    void inicializar();  // El bucle principal del programa
+    Menu();
+    void inicializar();
 };
 
 #endif // MENU_H

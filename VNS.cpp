@@ -8,52 +8,67 @@
 
 using namespace std;
 
+/*
+ * Descripción: Constructor de la metaheurística VNS.
+ * Entrada: Puntero constante al parser con los datos de la instancia.
+ * Salida: Instancia inicializada.
+ */
 VNS::VNS(const Parser* parser) : parserData(parser) {}
 
 // ─────────────────────────────────────────────────────────────
-// Helpers de costo
+// Métodos Auxiliares de Costo
 // ─────────────────────────────────────────────────────────────
 
+/*
+ * Descripción: Calcula la variación en la función objetivo al insertar un cliente 
+ * específico entre dos nodos adyacentes.
+ * Entrada: ID del nodo previo, ID del cliente a insertar, ID del nodo posterior.
+ * Salida: Entero representando el costo adicional generado por la inserción.
+ */
 int VNS::insertionCost(int prev, int clientId, int next) const {
-    // Costo de agregar clientId entre prev y next:
-    //   d(prev, clientId) + d(clientId, next) - d(prev, next)
     return parserData->getDistance(prev, clientId)
          + parserData->getDistance(clientId, next)
          - parserData->getDistance(prev, next);
 }
 
+/*
+ * Descripción: Calcula el ahorro en la función objetivo al remover un cliente 
+ * que se encuentra entre dos nodos adyacentes.
+ * Entrada: ID del nodo previo, ID del cliente a remover, ID del nodo posterior.
+ * Salida: Entero representando la distancia ahorrada (positiva).
+ */
 int VNS::removalSaving(int prev, int clientId, int next) const {
-    // Ahorro de quitar clientId que estaba entre prev y next:
-    //   d(prev, next) - d(prev, clientId) - d(clientId, next)
     return parserData->getDistance(prev, next)
          - parserData->getDistance(prev, clientId)
          - parserData->getDistance(clientId, next);
 }
 
 // ─────────────────────────────────────────────────────────────
-// Vecindad 1 – Relocate
-//
-// Para cada cliente en cada ruta, evalúa moverlo a cada posición
-// posible de cada otra ruta. Aplica el mejor movimiento encontrado
-// (best-improvement) si mejora el costo total y no viola capacidad.
+// Estructuras de Vecindad
 // ─────────────────────────────────────────────────────────────
+
+/*
+ * Descripción: Explora la vecindad "Relocate". Evalúa mover un cliente de su ruta actual 
+ * a la mejor posición posible dentro de cualquier otra ruta distinta. 
+ * Aplica el mejor movimiento encontrado (Best-Improvement) que respete las capacidades.
+ * Entrada: Solución actual por referencia.
+ * Salida: Booleano indicando si se aplicó un movimiento que mejora estrictamente el costo.
+ */
 bool VNS::neighborhoodRelocate(Solution& sol) {
     const auto& routes = sol.getRoutes();
     int numRoutes = routes.size();
     int Q = parserData->getCapacity();
 
-    int bestDelta     = 0;   // Solo aceptamos mejoras estrictas (delta < 0)
+    int bestDelta     = 0;   
     int bestFromRoute = -1;
-    int bestFromPos   = -1;  // Posición del cliente en su ruta (1-indexado en path)
+    int bestFromPos   = -1;  
     int bestToRoute   = -1;
-    int bestToPos     = -1;  // Posición de inserción en la ruta destino
+    int bestToPos     = -1;  
 
     for (int r1 = 0; r1 < numRoutes; r1++) {
         const vector<int>& path1 = routes[r1].getPath();
-        // path1[0] = bodega, path1[last] = bodega
-        // Clientes están en índices 1..size-2
         int clientsInRoute = path1.size() - 2;
-        if (clientsInRoute <= 1) continue; // No dejar ruta vacía
+        if (clientsInRoute <= 1) continue; 
 
         for (int i = 1; i <= clientsInRoute; i++) {
             int client = path1[i];
@@ -61,7 +76,6 @@ bool VNS::neighborhoodRelocate(Solution& sol) {
             int next1  = path1[i + 1];
             int demand = parserData->getClients()[client].getDemand();
 
-            // Ahorro de sacar este cliente de r1
             int saving = removalSaving(prev1, client, next1);
 
             for (int r2 = 0; r2 < numRoutes; r2++) {
@@ -69,14 +83,14 @@ bool VNS::neighborhoodRelocate(Solution& sol) {
                 if (routes[r2].getCurrentLoad() + demand > Q) continue;
 
                 const vector<int>& path2 = routes[r2].getPath();
-                int positions = path2.size() - 1; // Posiciones válidas de inserción
+                int positions = path2.size() - 1; 
 
                 for (int j = 1; j <= positions; j++) {
                     int prevJ = path2[j - 1];
                     int nextJ = path2[j];
 
                     int cost  = insertionCost(prevJ, client, nextJ);
-                    int delta = cost + saving; // Negativo = mejora
+                    int delta = cost + saving; 
 
                     if (delta < bestDelta) {
                         bestDelta     = delta;
@@ -90,40 +104,33 @@ bool VNS::neighborhoodRelocate(Solution& sol) {
         }
     }
 
-    if (bestFromRoute == -1) return false; // Sin mejora
+    if (bestFromRoute == -1) return false; 
 
-    // Aplicar el mejor movimiento encontrado reconstruyendo la solución
-    // Necesitamos reconstruir desde los paths porque Solution/Route son inmutables
-    // en tu diseño actual (no tienen setPath). Reconstruimos las rutas modificadas.
     Solution newSol(parserData);
     for (int r = 0; r < numRoutes; r++) {
         const vector<int>& oldPath = routes[r].getPath();
         Route newRoute(Q, parserData);
 
         if (r == bestFromRoute) {
-            // Ruta origen: omitir el cliente en bestFromPos
             for (int i = 1; i < (int)oldPath.size() - 1; i++) {
                 if (i == bestFromPos) continue;
                 newRoute.addClient(oldPath[i]);
             }
         } else if (r == bestToRoute) {
-            // Ruta destino: insertar el cliente en bestToPos
             int movedClient = routes[bestFromRoute].getPath()[bestFromPos];
             for (int i = 1; i < (int)oldPath.size() - 1; i++) {
                 if (i == bestToPos) newRoute.addClient(movedClient);
                 newRoute.addClient(oldPath[i]);
             }
-            // Si bestToPos es al final (antes de la bodega de cierre)
             if (bestToPos == (int)oldPath.size() - 1) {
                 newRoute.addClient(movedClient);
             }
         } else {
-            // Ruta sin cambios
             for (int i = 1; i < (int)oldPath.size() - 1; i++) {
                 newRoute.addClient(oldPath[i]);
             }
         }
-        // Solo agregar rutas no vacías
+        
         if (newRoute.getPath().size() > 2) {
             newSol.addRoute(newRoute);
         }
@@ -136,12 +143,13 @@ bool VNS::neighborhoodRelocate(Solution& sol) {
     return false;
 }
 
-// ─────────────────────────────────────────────────────────────
-// Vecindad 2 – Swap
-//
-// Para cada par de clientes en rutas distintas, evalúa intercambiarlos.
-// Aplica el mejor intercambio que mejore el costo y no viole capacidad.
-// ─────────────────────────────────────────────────────────────
+/*
+ * Descripción: Explora la vecindad "Swap". Evalúa intercambiar la posición de dos clientes 
+ * pertenecientes a rutas distintas. Aplica el intercambio que genere la mayor reducción 
+ * en la función objetivo sin violar restricciones de capacidad.
+ * Entrada: Solución actual por referencia.
+ * Salida: Booleano indicando si se logró una mejora estricta.
+ */
 bool VNS::neighborhoodSwap(Solution& sol) {
     const auto& routes = sol.getRoutes();
     int numRoutes = routes.size();
@@ -171,19 +179,15 @@ bool VNS::neighborhoodSwap(Solution& sol) {
                     int next2  = path2[j + 1];
                     int dem2   = parserData->getClients()[c2].getDemand();
 
-                    // Verificar capacidad con el intercambio
                     int newLoad1 = routes[r1].getCurrentLoad() - dem1 + dem2;
                     int newLoad2 = routes[r2].getCurrentLoad() - dem2 + dem1;
                     if (newLoad1 > Q || newLoad2 > Q) continue;
 
-                    // Delta del swap: quitar c1 de r1 e insertar c2, y viceversa
                     int delta = 
-                        // Costo nuevo en r1: c2 en lugar de c1
                         parserData->getDistance(prev1, c2) +
                         parserData->getDistance(c2, next1) -
                         parserData->getDistance(prev1, c1) -
                         parserData->getDistance(c1, next1) +
-                        // Costo nuevo en r2: c1 en lugar de c2
                         parserData->getDistance(prev2, c1) +
                         parserData->getDistance(c1, next2) -
                         parserData->getDistance(prev2, c2) -
@@ -201,7 +205,6 @@ bool VNS::neighborhoodSwap(Solution& sol) {
 
     if (bestR1 == -1) return false;
 
-    // Aplicar el swap reconstruyendo las dos rutas afectadas
     int c1 = routes[bestR1].getPath()[bestI];
     int c2 = routes[bestR2].getPath()[bestJ];
 
@@ -225,13 +228,13 @@ bool VNS::neighborhoodSwap(Solution& sol) {
     return false;
 }
 
-// ─────────────────────────────────────────────────────────────
-// Vecindad 3/4 – Or-Opt con segmento de largo `segLen`
-//
-// Toma un segmento de `segLen` clientes consecutivos de una ruta
-// y evalúa moverlo completo a la mejor posición en cualquier otra
-// ruta que tenga capacidad suficiente.
-// ─────────────────────────────────────────────────────────────
+/*
+ * Descripción: Explora la vecindad "Or-Opt". Extrae un segmento de tamaño 'segLen' 
+ * de una ruta y evalúa su inserción completa en la mejor posición disponible 
+ * de cualquier otra ruta de la flota.
+ * Entrada: Solución actual por referencia, longitud del segmento a mover (usualmente 2 o 3).
+ * Salida: Booleano indicando si se logró una mejora estricta.
+ */
 bool VNS::neighborhoodOrOpt(Solution& sol, int segLen) {
     const auto& routes = sol.getRoutes();
     int numRoutes = routes.size();
@@ -244,20 +247,18 @@ bool VNS::neighborhoodOrOpt(Solution& sol, int segLen) {
     for (int r1 = 0; r1 < numRoutes; r1++) {
         const vector<int>& path1 = routes[r1].getPath();
         int clients1 = path1.size() - 2;
-        if (clients1 <= segLen) continue; // No dejar ruta vacía
+        if (clients1 <= segLen) continue; 
 
         for (int i = 1; i <= clients1 - segLen + 1; i++) {
-            // Segmento: path1[i .. i+segLen-1]
             int segDemand = 0;
             for (int s = 0; s < segLen; s++)
                 segDemand += parserData->getClients()[path1[i + s]].getDemand();
 
             int prevSeg = path1[i - 1];
-            int nextSeg = path1[i + segLen]; // Nodo que queda tras el segmento
+            int nextSeg = path1[i + segLen]; 
             int segFirst = path1[i];
             int segLast  = path1[i + segLen - 1];
 
-            // Ahorro de retirar el segmento de r1
             int saving = parserData->getDistance(prevSeg, nextSeg)
                        - parserData->getDistance(prevSeg, segFirst)
                        - parserData->getDistance(segLast, nextSeg);
@@ -277,7 +278,7 @@ bool VNS::neighborhoodOrOpt(Solution& sol, int segLen) {
                                    + parserData->getDistance(segLast, nextJ)
                                    - parserData->getDistance(prevJ, nextJ);
 
-                    int delta = insertCost + saving; // saving es negativo
+                    int delta = insertCost + saving; 
 
                     if (delta < bestDelta) {
                         bestDelta    = delta;
@@ -291,7 +292,6 @@ bool VNS::neighborhoodOrOpt(Solution& sol, int segLen) {
 
     if (bestR1 == -1) return false;
 
-    // Recopilar el segmento a mover
     const vector<int>& srcPath = routes[bestR1].getPath();
     vector<int> segment;
     for (int s = 0; s < segLen; s++)
@@ -303,13 +303,11 @@ bool VNS::neighborhoodOrOpt(Solution& sol, int segLen) {
         Route newRoute(Q, parserData);
 
         if (r == bestR1) {
-            // Omitir el segmento
             for (int i = 1; i < (int)oldPath.size() - 1; i++) {
                 if (i >= bestSegStart && i < bestSegStart + segLen) continue;
                 newRoute.addClient(oldPath[i]);
             }
         } else if (r == bestR2) {
-            // Insertar segmento en bestInsertPos
             for (int i = 1; i < (int)oldPath.size() - 1; i++) {
                 if (i == bestInsertPos)
                     for (int c : segment) newRoute.addClient(c);
@@ -331,30 +329,29 @@ bool VNS::neighborhoodOrOpt(Solution& sol, int segLen) {
     return false;
 }
 
-// shake
-//
-// Extrae `intensity` clientes aleatorios de sus rutas y los
-// reinserta en la mejor posición factible disponible (Best
-// Insertion). Esto rompe rutas densamente cargadas y crea
-// capacidad para que los operadores de descenso puedan operar.
 // ─────────────────────────────────────────────────────────────
+// Ciclo Principal de Optimización
+// ─────────────────────────────────────────────────────────────
+
+/*
+ * Descripción: Aplica una fase de agitación (Shaking) a la solución. Extrae aleatoriamente 
+ * una cantidad determinada ('intensity') de clientes y los reinserta empleando heurística 
+ * Greedy. Este mecanismo permite escapar de valles de óptimos locales profundos.
+ * Entrada: Solución base actual, nivel de intensidad de la agitación, generador pseudo-aleatorio.
+ * Salida: Nueva solución perturbada.
+ */
 Solution VNS::shake(const Solution& sol, int intensity, mt19937& rng) const {
     int Q = parserData->getCapacity();
 
-    // Construir lista de todos los clientes y de qué ruta vienen
-    // Trabajamos con copias de los paths para poder modificarlos
     vector<vector<int>> paths;
     for (const auto& route : sol.getRoutes())
         paths.push_back(route.getPath());
 
     int numRoutes = paths.size();
 
-    // Recopilar todos los clientes disponibles para extracción
-    // (excluimos la bodega, índice 0 en path = nodo 1)
-    vector<pair<int,int>> allClients; // (routeIdx, posInPath)
+    vector<pair<int,int>> allClients; 
     for (int r = 0; r < numRoutes; r++) {
-        int routeSize = paths[r].size() - 2; // sin las dos bodegas
-        // Solo extraer de rutas con más de 1 cliente para no dejarlas vacías
+        int routeSize = paths[r].size() - 2; 
         if (routeSize > 1) {
             for (int i = 1; i <= routeSize; i++)
                 allClients.push_back({r, i});
@@ -363,28 +360,23 @@ Solution VNS::shake(const Solution& sol, int intensity, mt19937& rng) const {
 
     if (allClients.empty()) return sol;
 
-    // Limitar intensity al máximo disponible
     intensity = min(intensity, (int)allClients.size());
 
-    // Seleccionar `intensity` clientes aleatorios para extraer
     shuffle(allClients.begin(), allClients.end(), rng);
-    vector<int> extracted; // IDs de clientes extraídos
+    vector<int> extracted; 
 
-    // Extraer de atrás hacia adelante para no invalidar índices
-    // Agrupar por ruta y ordenar posiciones descendentes
     map<int, vector<int>> toRemoveByRoute;
     for (int k = 0; k < intensity; k++)
         toRemoveByRoute[allClients[k].first].push_back(allClients[k].second);
 
     for (auto& [routeIdx, positions] : toRemoveByRoute) {
-        sort(positions.rbegin(), positions.rend()); // mayor índice primero
+        sort(positions.rbegin(), positions.rend()); 
         for (int pos : positions) {
             extracted.push_back(paths[routeIdx][pos]);
             paths[routeIdx].erase(paths[routeIdx].begin() + pos);
         }
     }
 
-    // Reinsertar cada cliente extraído en la mejor posición factible
     for (int clientId : extracted) {
         int demand = parserData->getClients()[clientId].getDemand();
         int bestDelta = INT_MAX;
@@ -392,7 +384,6 @@ Solution VNS::shake(const Solution& sol, int intensity, mt19937& rng) const {
         int bestPos   = -1;
 
         for (int r = 0; r < numRoutes; r++) {
-            // Calcular carga actual de la ruta
             int load = 0;
             for (int node : paths[r])
                 if (node != 1) load += parserData->getClients()[node].getDemand();
@@ -417,16 +408,14 @@ Solution VNS::shake(const Solution& sol, int intensity, mt19937& rng) const {
         if (bestRoute != -1) {
             paths[bestRoute].insert(paths[bestRoute].begin() + bestPos, clientId);
         } else {
-            // Si no cabe en ninguna ruta existente, crear ruta nueva
             paths.push_back({1, clientId, 1});
             numRoutes++;
         }
     }
 
-    // Reconstruir solución desde los paths modificados
     Solution newSol(parserData);
     for (const auto& path : paths) {
-        if (path.size() <= 2) continue; // Ruta vacía
+        if (path.size() <= 2) continue; 
         Route newRoute(Q, parserData);
         for (int i = 1; i < (int)path.size() - 1; i++)
             newRoute.addClient(path[i]);
@@ -436,32 +425,25 @@ Solution VNS::shake(const Solution& sol, int intensity, mt19937& rng) const {
     return newSol;
 }
 
-
-// ─────────────────────────────────────────────────────────────
-// optimize – Bucle principal VNS
-//
-// Esquema VND (Variable Neighborhood Descent):
-//   k = 0 (Relocate)
-//   mientras k < NUM_VECINDADES:
-//     si vecindad k mejora → reiniciar k = 0
-//     si no mejora         → k++
-//   tras cada mejora inter-ruta, aplicar 3-OPT intra-ruta
-// ─────────────────────────────────────────────────────────────
+/*
+ * Descripción: Función principal del algoritmo VNS. Alterna sistemáticamente entre las vecindades 
+ * iterando bajo el esquema Variable Neighborhood Descent (VND). Emplea 3-OPT como post-optimización 
+ * y mecanismos de Shaking si se estanca.
+ * Entrada: Solución factible inicial, cantidad máxima de iteraciones sin mejora permitidas.
+ * Salida: Mejor solución local/global encontrada.
+ */
 Solution VNS::optimize(const Solution& initialSolution, int maxIter) {
     KOpt kopt(parserData);
-    mt19937 rng(42); // Semilla fija para reproducibilidad
+    mt19937 rng(42); 
 
-    // Parámetros VNS
-    const int K_MAX        = 5;   // Máximo nivel de shaking
-    const int MAX_ITER     = maxIter; // Iteraciones sin mejora antes de parar
-    // Intensidad de shaking: extraer entre 2 y 2+K clientes
+    const int K_MAX        = 5;   
+    const int MAX_ITER     = maxIter; 
     const int BASE_SHAKE   = 2;
 
-    // ── Fase 1: VND inicial ──
+    // ── 1. Fase Inicial: VND sin perturbación ──
     Solution best = kopt.optimize(initialSolution);
     Solution current = best;
 
-    // VND sobre la solución inicial
     bool improved = true;
     while (improved) {
         improved = false;
@@ -472,16 +454,14 @@ Solution VNS::optimize(const Solution& initialSolution, int maxIter) {
     }
     best = current;
 
-    // ── Fase 2: Loop VNS con shaking ──
+    // ── 2. Fase de Exploración: Loop VNS + Shaking ──
     int k       = 1;
     int noImproveCount = 0;
 
     while (noImproveCount < MAX_ITER) {
-        // Shaking: perturbar la mejor solución conocida
         int intensity = BASE_SHAKE + k;
         Solution shaken = shake(best, intensity, rng);
 
-        // VND sobre la solución perturbada
         Solution candidate = shaken;
         improved = true;
         while (improved) {
@@ -492,13 +472,12 @@ Solution VNS::optimize(const Solution& initialSolution, int maxIter) {
             if (neighborhoodOrOpt(candidate, 3)) { candidate = kopt.optimize(candidate); improved = true; continue; }
         }
 
-        // ¿Mejoró la mejor solución conocida?
         if (candidate.getTotalCost() < best.getTotalCost()) {
             best    = candidate;
-            k       = 1;          // Reiniciar con perturbación mínima
+            k       = 1;          
             noImproveCount = 0;
         } else {
-            k = (k % K_MAX) + 1;  // Aumentar intensidad cíclicamente
+            k = (k % K_MAX) + 1;  
             noImproveCount++;
         }
     }

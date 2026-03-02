@@ -2,17 +2,27 @@
 #include <iostream>
 #include <fstream>
 #include <cmath>
-#include <algorithm> // Para std::sort
+#include <algorithm> 
 
 using namespace std;
 
-// Constructor: inicializa variables y dispara la lectura
+/*
+ * Descripción: Constructor de la clase Parser. Inicializa las variables,
+ * lee el archivo y precalcula las distancias y vecinos.
+ * Entrada: Ruta del archivo de la instancia (string).
+ * Salida: Instancia inicializada.
+ */
 Parser::Parser(const string& filename) : filename(filename), dimension(0), capacity(0) {
     loadData();
     calculateDistanceMatrix();
-    buildSortedAdjacencyList(); // Pre-calculamos los vecinos ordenados
+    buildSortedAdjacencyList(); 
 }
 
+/*
+ * Descripción: Lee los datos del archivo .vrp (dimensión, capacidad, coordenadas y demandas).
+ * Entrada: Ninguna.
+ * Salida: Ninguna.
+ */
 void Parser::loadData() {
     ifstream vrp(filename);
     if (!vrp.is_open()) {
@@ -58,6 +68,12 @@ void Parser::loadData() {
     }
 }
 
+/*
+ * Descripción: Calcula la matriz de distancias entre todos los clientes.
+ * Utiliza std::round para cumplir con la norma EUC_2D oficial del TSPLIB.
+ * Entrada: Ninguna.
+ * Salida: Ninguna.
+ */
 void Parser::calculateDistanceMatrix() {
     distanceMatrix.resize(dimension + 1, vector<int>(dimension + 1, 0));
 
@@ -66,39 +82,77 @@ void Parser::calculateDistanceMatrix() {
             double dx = clients[i].getX() - clients[j].getX();
             double dy = clients[i].getY() - clients[j].getY();
             
-            // EL CAMBIO ESTÁ AQUÍ:
-            // Usamos std::round para cumplir con la norma EUC_2D oficial del TSPLIB
             distanceMatrix[i][j] = static_cast<int>(std::round(std::sqrt(dx * dx + dy * dy)));
         }
     }
 }
 
-// Construcción de la lista de adyacencia ordenada
+/*
+ * Descripción: Construye una lista de adyacencia donde cada nodo tiene a sus
+ * vecinos ordenados de menor a mayor distancia.
+ * Entrada: Ninguna.
+ * Salida: Ninguna.
+ */
 void Parser::buildSortedAdjacencyList() {
-    // Redimensionamos para tener un vector por cada nodo (índice 0 no se usa)
     sortedAdjacencyList.resize(dimension + 1);
 
     for (int i = 1; i <= dimension; ++i) {
-        // Para cada nodo i, agregamos a todos los demás nodos j
         for (int j = 1; j <= dimension; ++j) {
-            if (i != j) { // No agregamos la distancia hacia sí mismo
+            if (i != j) { 
                 sortedAdjacencyList[i].push_back({j, distanceMatrix[i][j]});
             }
         }
-        // Ordenamos los vecinos del nodo i de menor a mayor distancia
         std::sort(sortedAdjacencyList[i].begin(), sortedAdjacencyList[i].end());
     }
 }
 
+/*
+ * Descripción: Retorna la dimensión del problema (número de clientes + bodega).
+ * Entrada: Ninguna.
+ * Salida: Entero con la dimensión.
+ */
 int Parser::getDimension() const { return dimension; }
+
+/*
+ * Descripción: Retorna la capacidad máxima de los vehículos.
+ * Entrada: Ninguna.
+ * Salida: Entero con la capacidad.
+ */
 int Parser::getCapacity() const { return capacity; }
+
+/*
+ * Descripción: Retorna el vector de clientes.
+ * Entrada: Ninguna.
+ * Salida: Referencia constante al vector de clientes.
+ */
 const vector<Client>& Parser::getClients() const { return clients; }
+
+/*
+ * Descripción: Retorna la matriz de distancias precalculada.
+ * Entrada: Ninguna.
+ * Salida: Referencia constante a la matriz 2D de distancias.
+ */
 const vector<vector<int>>& Parser::getDistanceMatrix() const { return distanceMatrix; }
+
+/*
+ * Descripción: Retorna la distancia exacta entre dos nodos.
+ * Entrada: ID del nodo origen, ID del nodo destino.
+ * Salida: Entero con la distancia.
+ */
 int Parser::getDistance(int fromId, int toId) const { return distanceMatrix[fromId][toId]; }
 
-// Retorna la lista de vecinos ordenados de un nodo
+/*
+ * Descripción: Retorna la lista de vecinos de un nodo, ordenados por distancia.
+ * Entrada: ID del nodo a consultar.
+ * Salida: Referencia constante al vector de vecinos ordenados.
+ */
 const vector<Neighbor>& Parser::getSortedNeighbors(int nodeId) const {
     return sortedAdjacencyList[nodeId];
 }
 
+/*
+ * Descripción: Destructor de la clase.
+ * Entrada: Ninguna.
+ * Salida: Ninguna.
+ */
 Parser::~Parser() {}

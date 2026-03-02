@@ -7,15 +7,23 @@ using namespace std;
 using chrono::steady_clock;
 using chrono::duration;
 
-// Constructor: Inicializa las variables
-Menu::Menu() : parserGlobal(nullptr), instanciaCargada(false), tiempoLimiteGlobal(120.0) {
-    // mejorSolucionGlobal se inicializa vacía
-}
+/*
+ * Descripción: Constructor de la clase Menu. Inicializa el estado del sistema.
+ * Entrada: Ninguna.
+ * Salida: Instancia de Menu configurada con valores por defecto.
+ */
+Menu::Menu() : parserGlobal(nullptr), instanciaCargada(false), tiempoLimiteGlobal(120.0) {}
 
 // ---------------------------------------------------------
 // FUNCIONES AUXILIARES
 // ---------------------------------------------------------
 
+/*
+ * Descripción: Imprime el encabezado principal con el estado actual del sistema,
+ * incluyendo los datos de la instancia cargada y los mejores resultados históricos.
+ * Entrada: Ninguna.
+ * Salida: Ninguna.
+ */
 void Menu::mostrarEncabezado() const {
     cout << "\n========================================================" << endl;
     cout << "     EVALUACION 3: RUTEO DE VEHICULOS (CVRP)            " << endl;
@@ -33,13 +41,23 @@ void Menu::mostrarEncabezado() const {
     cout << "--------------------------------------------------------" << endl;
 }
 
+/*
+ * Descripción: Despliega el tiempo de ejecución en consola con precisión ajustada.
+ * Entrada: Tiempo transcurrido en segundos.
+ * Salida: Ninguna.
+ */
 void Menu::reportarTiempo(double tiempoTotal) const {
     cout << fixed << setprecision(3);
     cout << ">> Tiempo de ejecucion: " << tiempoTotal << " segundos." << endl;
 }
 
+/*
+ * Descripción: Verifica si la solución calculada mejora el óptimo global del sistema
+ * y la registra en caso de ser estrictamente mejor.
+ * Entrada: Objeto Solution a evaluar, nombre del algoritmo ejecutado.
+ * Salida: Ninguna.
+ */
 void Menu::actualizarMejorSolucion(const Solution& solActual, const string& algoritmo) {
-    // Como es minimización, verificamos si es menor (y mayor que 0 por si está vacía)
     if (solActual.getTotalCost() > 0 && 
        (mejorSolucionGlobal.getTotalCost() == 0 || solActual.getTotalCost() < mejorSolucionGlobal.getTotalCost())) {
         mejorSolucionGlobal = solActual;
@@ -54,15 +72,21 @@ void Menu::actualizarMejorSolucion(const Solution& solActual, const string& algo
 // OPCIONES DEL MENÚ
 // ---------------------------------------------------------
 
+/*
+ * Descripción: Solicita al usuario la ruta de un archivo, lo procesa mediante el Parser
+ * y actualiza el entorno global de ejecución.
+ * Entrada: Ninguna (lectura por teclado).
+ * Salida: Ninguna.
+ */
 void Menu::cargarInstancia() {
-    cout << "\nIngrese la ruta del archivo de la instancia (ej. sets/A-n32-k5.vrp): ";
+    cout << "\nIngrese el nombre del archivo de la instancia en /sets (ej. A-n32-k5.vrp): ";
     string ruta;
     cin >> ruta;
     
     try {
-        parserGlobal = make_unique<Parser>(ruta);
+        string realRoute = "sets/" + ruta;
+        parserGlobal = make_unique<Parser>(realRoute);
         instanciaCargada = true;
-        // Reseteamos la mejor solución histórica al cambiar de mapa
         mejorSolucionGlobal = Solution(parserGlobal.get()); 
         cout << ">> Archivo cargado correctamente." << endl;
     } catch (...) {
@@ -71,6 +95,11 @@ void Menu::cargarInstancia() {
     }
 }
 
+/*
+ * Descripción: Permite al usuario modificar el límite de tiempo global para los algoritmos.
+ * Entrada: Ninguna (lectura por teclado).
+ * Salida: Ninguna.
+ */
 void Menu::configurarTiempo() {
     cout << "\nIngrese el nuevo tiempo limite en segundos (actual " << tiempoLimiteGlobal << "s): ";
     double nuevoTiempo;
@@ -84,6 +113,11 @@ void Menu::configurarTiempo() {
     }
 }
 
+/*
+ * Descripción: Ejecuta la construcción heurística de Clarke-Wright y aplica una mejora local 3-OPT.
+ * Entrada: Ninguna.
+ * Salida: Ninguna.
+ */
 void Menu::ejecutar3OPT() {
     cout << "\n--- Ejecutando Heuristica CW + 3-OPT ---" << endl;
     auto inicio = steady_clock::now();
@@ -103,12 +137,17 @@ void Menu::ejecutar3OPT() {
     actualizarMejorSolucion(koptSol, "3-OPT");
 }
 
+/*
+ * Descripción: Ejecuta el solver exacto Branch & Bound utilizando la interfaz CBC/CLP,
+ * partiendo de un Warm Start de Clarke-Wright refinado exclusivamente con 3-OPT.
+ * Entrada: Ninguna.
+ * Salida: Ninguna.
+ */
 void Menu::ejecutarBranchAndBound() {
     cout << "\n--- Ejecutando Branch & Bound + CLP ---" << endl;
     cout << "Usando limite de tiempo de " << tiempoLimiteGlobal << "s." << endl;
     auto inicio = steady_clock::now();
 
-    // Warm Start exclusivo con 3-OPT (SIN VNS, como solicitaste)
     GreedyBuilder builder(parserGlobal.get());
     Solution cwSol = builder.buildSolution();
     KOpt kopt(parserGlobal.get());
@@ -117,7 +156,6 @@ void Menu::ejecutarBranchAndBound() {
     cout << ">> Inyectando Warm Start (CW+3OPT): " << warmStart.getTotalCost() << endl;
 
     BranchAndBound bb(parserGlobal.get(), warmStart);
-    // Por defecto usando Best-First, que dio mejores resultados en pruebas
     Solution bbSol = bb.solveBestFirst(tiempoLimiteGlobal);
 
     double tiempo = duration<double>(steady_clock::now() - inicio).count();
@@ -128,25 +166,26 @@ void Menu::ejecutarBranchAndBound() {
     actualizarMejorSolucion(bbSol, "Branch & Bound");
 }
 
+/*
+ * Descripción: Ejecuta la metaheurística Adaptive Large Neighborhood Search asistida 
+ * por el solver MIP (LNS-MIP), precedida y seguida por fases de Variable Neighborhood Search.
+ * Entrada: Ninguna.
+ * Salida: Ninguna.
+ */
 void Menu::ejecutarMejorHeuristica() {
     cout << "\n--- Ejecutando Mejor Heuristica (ALNS + LNS-MIP) ---" << endl;
     cout << "Usando limite de tiempo de " << tiempoLimiteGlobal << "s." << endl;
     auto inicio = steady_clock::now();
 
-    // Warm Start VNS
     GreedyBuilder builder(parserGlobal.get());
     Solution cwSol = builder.buildSolution();
     VNS vns(parserGlobal.get());
     Solution vnsSol = vns.optimize(cwSol, 30); 
 
-    // Motor Exacto (Repair)
     CbcSolver cbc(parserGlobal.get());
-    
-    // Metaheurística
     ALNS alns(parserGlobal.get(), &cbc);
     Solution alnsSol = alns.optimize(vnsSol, tiempoLimiteGlobal);
 
-    // Pulido final
     Solution finalSol = vns.optimize(alnsSol, 30);
 
     double tiempo = duration<double>(steady_clock::now() - inicio).count();
@@ -154,7 +193,6 @@ void Menu::ejecutarMejorHeuristica() {
     cout << "\n>> Costo final ALNS: " << finalSol.getTotalCost() << endl;
     finalSol.print();
     
-    // Cálculo del GAP aproximado si tenemos un B&B que no terminó (opcional, aquí comparamos con CW)
     double gapCW = 100.0 * (cwSol.getTotalCost() - finalSol.getTotalCost()) / cwSol.getTotalCost();
     cout << ">> Mejora sobre inicial (CW): " << gapCW << "%" << endl;
     
@@ -162,6 +200,12 @@ void Menu::ejecutarMejorHeuristica() {
     actualizarMejorSolucion(finalSol, "ALNS+CBC");
 }
 
+/*
+ * Descripción: Solicita al usuario ingresar un esquema de rutas por teclado,
+ * validando estructuralmente la entrada y evaluando la función objetivo resultante.
+ * Entrada: Ninguna (lectura interactiva por teclado).
+ * Salida: Ninguna.
+ */
 void Menu::ingresoManual() {
     cout << "\n--- Ingreso de Rutas Manual ---" << endl;
     cout << "Ingrese el numero de vehiculos a utilizar: ";
@@ -173,7 +217,6 @@ void Menu::ingresoManual() {
         return;
     }
     
-    // Limpiamos el buffer del enter
     cin.ignore(numeric_limits<streamsize>::max(), '\n');
 
     Solution solucionManual(parserGlobal.get());
@@ -191,7 +234,6 @@ void Menu::ingresoManual() {
         Route ruta(parserGlobal->getCapacity(), parserGlobal.get());
         
         while (ss >> clienteId) {
-            // Ignoramos si el usuario ingresó '1' accidentalmente
             if (clienteId != 1) {
                 if (!ruta.addClient(clienteId)) {
                     cout << "  [Advertencia] Capacidad excedida al intentar agregar el cliente " << clienteId << endl;
@@ -217,6 +259,12 @@ void Menu::ingresoManual() {
 // BUCLE PRINCIPAL
 // ---------------------------------------------------------
 
+/*
+ * Descripción: Función de control principal que despliega las opciones del sistema 
+ * y captura las instrucciones del usuario en un ciclo interactivo.
+ * Entrada: Ninguna.
+ * Salida: Ninguna.
+ */
 void Menu::inicializar() {
     string opcion;
     

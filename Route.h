@@ -2,37 +2,36 @@
 #define ROUTE_H
 
 #include <vector>
-#include "Parser.h" // Necesitamos la matriz de distancias para calcular costos
+#include "Parser.h" 
 
+/*
+ * Clase Route
+ * Descripción: Representa la ruta de un solo vehículo en el problema CVRP.
+ * Mantiene la secuencia de clientes visitados, la carga acumulada y el costo total.
+ */
 class Route {
 private:
-    std::vector<int> path; // Secuencia de IDs de clientes (ej: 1 -> 4 -> 2 -> 1)
+    std::vector<int> path; 
     int currentLoad;
     double totalCost;
     int maxCapacity;
 
-    // Referencia al parser (o a la matriz) para no duplicar datos
     const Parser* parserData; 
 
-    // Actualiza el costo y la carga internamente al modificar la ruta
     void updateMetrics();
 
 public:
-    // Constructor
     Route(int maxCapacity, const Parser* parser);
 
-    // Métodos de manipulación de la ruta
-    bool addClient(int clientId); // Retorna falso si excede la capacidad
+    bool addClient(int clientId); 
     void insertClientAt(int index, int clientId);
     void removeClient(int clientId);
 
-    // Métodos de validación y consulta
-    bool isValid() const; // Verifica que empiece/termine en 1 y no exceda capacidad
+    bool isValid() const; 
     int getCurrentLoad() const;
     double getTotalCost() const;
     const std::vector<int>& getPath() const;
 
-    // Destructor
     ~Route();
 };
 

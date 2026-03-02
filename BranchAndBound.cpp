@@ -1,5 +1,4 @@
 #include "BranchAndBound.h"
-#include "VNS.h"
 #include <iostream>
 #include <cmath>
 #include <coin/CoinBuild.hpp>
@@ -7,18 +6,33 @@
 
 using namespace std;
 
+/*
+ * Descripción: Constructor del algoritmo exacto.
+ * Entrada: Puntero al parser, solución inicial factible (Warm Start).
+ * Salida: Instancia inicializada.
+ */
 BranchAndBound::BranchAndBound(const Parser* parser, const Solution& initialSolution) 
     : parserData(parser), bestSolution(initialSolution) {
     globalUpperBound = initialSolution.getTotalCost();
     numClients = parserData->getDimension(); 
-    numVariables = numClients * numClients; // Adiós a las variables Ui
+    numVariables = numClients * numClients; 
 }
 
+/*
+ * Descripción: Mapea coordenadas 2D (origen, destino) a un índice lineal 1D.
+ * Entrada: Índices de nodo i, j.
+ * Salida: Índice de la variable X_ij en el modelo de CLP.
+ */
 int BranchAndBound::getVarIndex(int i, int j) const {
     return i * numClients + j;
 }
 
-// MODELO BASE: Ultra rápido, solo grados de entrada y salida
+/*
+ * Descripción: Construye la relajación LP inicial. Solo incluye restricciones 
+ * de grado (entrada/salida) y prohibición de 2-ciclos.
+ * Entrada: Referencia al modelo ClpSimplex.
+ * Salida: Ninguna (modifica el modelo in-place).
+ */
 void BranchAndBound::buildBaseModel(ClpSimplex& model) {
     model.resize(0, numVariables);
     double* objective = model.objective();
@@ -37,6 +51,7 @@ void BranchAndBound::buildBaseModel(ClpSimplex& model) {
     CoinBuild build;
     int K = bestSolution.getRoutes().size(); 
 
+    // Grado de salida = 1 para cada cliente
     for (int i = 1; i < numClients; ++i) {
         vector<int> indices; vector<double> elements;
         for (int j = 0; j < numClients; ++j) {
@@ -45,6 +60,7 @@ void BranchAndBound::buildBaseModel(ClpSimplex& model) {
         build.addRow(indices.size(), indices.data(), elements.data(), 1.0, 1.0);
     }
 
+    // Grado de entrada = 1 para cada cliente
     for (int j = 1; j < numClients; ++j) {
         vector<int> indices; vector<double> elements;
         for (int i = 0; i < numClients; ++i) {
@@ -53,6 +69,7 @@ void BranchAndBound::buildBaseModel(ClpSimplex& model) {
         build.addRow(indices.size(), indices.data(), elements.data(), 1.0, 1.0);
     }
 
+    // Grado de entrada y salida de la bodega = K vehículos
     vector<int> depotOutIdx; vector<double> depotOutEl;
     vector<int> depotInIdx; vector<double> depotInEl;
     for (int j = 1; j < numClients; ++j) {
@@ -62,12 +79,11 @@ void BranchAndBound::buildBaseModel(ClpSimplex& model) {
     build.addRow(depotOutIdx.size(), depotOutIdx.data(), depotOutEl.data(), K, K);
     build.addRow(depotInIdx.size(), depotInIdx.data(), depotInEl.data(), K, K);
 
-    // Prohibir 2-ciclos: X_ij + X_ji <= 1
+    // Restricción anti 2-ciclos (X_ij + X_ji <= 1)
     for (int i = 1; i < numClients; ++i) {
         for (int j = i + 1; j < numClients; ++j) {
             vector<int> indices = {getVarIndex(i, j), getVarIndex(j, i)};
             vector<double> elements = {1.0, 1.0};
-            // La suma no puede exceder 1.0
             build.addRow(indices.size(), indices.data(), elements.data(), -COIN_DBL_MAX, 1.0);
         }
     }
@@ -75,13 +91,18 @@ void BranchAndBound::buildBaseModel(ClpSimplex& model) {
     model.addRows(build);
 }
 
-// EL DETECTOR DE TRAMPAS: Encuentra subtours aislados y rutas que violan capacidad
+/*
+ * Descripción: Analiza una solución candidata para detectar conjuntos de nodos que forman
+ * subtours aislados o exceden la capacidad vehicular máxima.
+ * Entrada: Arreglo de variables de la solución LP.
+ * Salida: Lista de conjuntos inválidos (S) para aplicar cortes DFJ.
+ */
 vector<vector<int>> BranchAndBound::findInvalidSets(const double* solution) const {
     vector<vector<int>> invalidSets;
     vector<bool> visited(numClients, false);
     visited[0] = true;
 
-    // 1. Rastrear rutas conectadas a la bodega (Verificamos CAPACIDAD)
+    // Verificar violaciones de capacidad en rutas conectadas a la bodega
     for (int j = 1; j < numClients; ++j) {
         if (solution[getVarIndex(0, j)] > 0.5) {
             vector<int> currentRoute;
@@ -91,7 +112,6 @@ vector<vector<int>> BranchAndBound::findInvalidSets(const double* solution) cons
             while (curr != 0) {
                 visited[curr] = true;
                 currentRoute.push_back(curr);
-                // Ajuste +1 porque el parser usa IDs desde 1
                 currentLoad += parserData->getClients()[curr + 1].getDemand(); 
                 
                 int next = -1;
@@ -104,14 +124,13 @@ vector<vector<int>> BranchAndBound::findInvalidSets(const double* solution) cons
                 curr = next;
             }
             
-            // Si la ruta sobrepasa la carga Q, necesita ser cortada
             if (currentLoad > parserData->getCapacity()) {
                 invalidSets.push_back(currentRoute);
             }
         }
     }
 
-    // 2. Rastrear islas fantasmas (Verificamos SUBTOURS aislados)
+    // Verificar subtours aislados (clientes no alcanzados desde la bodega)
     for (int i = 1; i < numClients; ++i) {
         if (!visited[i]) {
             vector<int> isolatedSet;
@@ -134,23 +153,25 @@ vector<vector<int>> BranchAndBound::findInvalidSets(const double* solution) cons
     return invalidSets;
 }
 
+/*
+ * Descripción: Determina la variable fraccionaria de mayor impacto en la función objetivo.
+ * Entrada: Arreglo de variables de la solución LP.
+ * Salida: Índice de la variable seleccionada para ramificar.
+ */
 int BranchAndBound::getMostFractionalVariable(const double* solution) const {
     int bestVar = -1;
     double maxImpact = 0.0;
     
-    // Necesitamos acceder a la función objetivo (las distancias)
-    // Asumiendo que tu modelo base o parser puede darnos el costo de la variable 'i'
     for (int i = 0; i < numVariables; ++i) {
         double val = solution[i];
         double fractionality = std::abs(val - std::round(val));
         
         if (fractionality > 0.01) {
-            // Extraemos i, j para saber la distancia
             int from = i / numClients;
             int to = i % numClients;
             double distance = parserData->getDistance(from + 1, to + 1);
             
-            // EL TRUCO: Impacto = Fraccionalidad * Costo del viaje
+            // Ponderamos fraccionalidad por el costo del arco
             double impact = fractionality * distance; 
             
             if (impact > maxImpact) {
@@ -162,6 +183,11 @@ int BranchAndBound::getMostFractionalVariable(const double* solution) const {
     return bestVar; 
 }
 
+/*
+ * Descripción: Convierte un vector LP estrictamente binario en un objeto Solution.
+ * Entrada: Arreglo de variables de la solución entera.
+ * Salida: Objeto Solution formateado.
+ */
 Solution BranchAndBound::convertToSolution(const double* solution) const {
     Solution newSolution(parserData);
     for (int j = 1; j < numClients; ++j) {
@@ -184,15 +210,18 @@ Solution BranchAndBound::convertToSolution(const double* solution) const {
     return newSolution;
 }
 
+/*
+ * Descripción: Construye una solución factible redondeando heurísticamente valores LP.
+ * Entrada: Arreglo de variables continuas LP.
+ * Salida: Solución factible generada.
+ */
 Solution BranchAndBound::roundingHeuristic(const double* solution) const {
     Solution heuristicSol(parserData);
     int capacity = parserData->getCapacity();
     std::vector<bool> visited(numClients, false);
-    visited[0] = true; // La bodega siempre está visitada
+    visited[0] = true; 
 
-    // Buscamos iniciar camiones desde la bodega
     for (int j = 1; j < numClients; ++j) {
-        // Tu regla: Si CLP sugiere fuertemente salir de la bodega hacia 'j' (> 0.5 o > 0.8)
         if (solution[getVarIndex(0, j)] > 0.5 && !visited[j]) {
             Route route(capacity, parserData);
             int curr = j;
@@ -204,11 +233,9 @@ Solution BranchAndBound::roundingHeuristic(const double* solution) const {
                 int next = -1;
                 double bestVal = -1.0;
                 
-                // Buscamos el siguiente salto priorizando los decimales más altos de CLP
                 for (int k = 0; k < numClients; ++k) {
-                    if (!visited[k] || k == 0) { // Podemos ir a un no visitado o volver a la bodega
+                    if (!visited[k] || k == 0) { 
                         double val = solution[getVarIndex(curr, k)];
-                        // Tomamos el camino que CLP recomienda con más fuerza
                         if (val > bestVal) {
                             bestVal = val;
                             next = k;
@@ -216,7 +243,6 @@ Solution BranchAndBound::roundingHeuristic(const double* solution) const {
                     }
                 }
                 
-                // Si no hay salida lógica (o CLP no sugiere nada fuerte), forzamos regreso a bodega
                 if (next == -1 || (bestVal < 0.2 && next != 0)) {
                     curr = 0; 
                 } else {
@@ -227,9 +253,7 @@ Solution BranchAndBound::roundingHeuristic(const double* solution) const {
         }
     }
     
-    // Verificación de seguridad: ¿Quedaron clientes sin visitar?
-    // Si la heurística dejó clientes abandonados, forzamos camiones directos (Bodega -> Cliente -> Bodega)
-    // para que la solución sea válida, aunque sea cara. El 3-OPT se encargará de arreglarlo después.
+    // Forzar la recolección de nodos abandonados
     for (int i = 1; i < numClients; ++i) {
         if (!visited[i]) {
             Route emergencyRoute(capacity, parserData);
@@ -241,15 +265,19 @@ Solution BranchAndBound::roundingHeuristic(const double* solution) const {
     return heuristicSol;
 }
 
+/*
+ * Descripción: Construye una solución basada en las preferencias fraccionarias del LP.
+ * Entrada: Arreglo de variables continuas LP.
+ * Salida: Solución factible armada.
+ */
 Solution BranchAndBound::lpGuidedConstruction(const double* lpSol) const {
     int Q   = parserData->getCapacity();
     int K   = (int)bestSolution.getRoutes().size();
 
-    // Ordenar clientes por x_{0,j} descendente:
-    // el LP "prefiere" arrancar rutas desde los de mayor valor
     vector<int> clientOrder;
     for (int j = 1; j < numClients; j++)
         clientOrder.push_back(j);
+        
     sort(clientOrder.begin(), clientOrder.end(), [&](int a, int b) {
         return lpSol[getVarIndex(0, a)] > lpSol[getVarIndex(0, b)];
     });
@@ -257,11 +285,10 @@ Solution BranchAndBound::lpGuidedConstruction(const double* lpSol) const {
     vector<bool> assigned(numClients, false);
     assigned[0] = true;
 
-    // Fase 1: iniciar exactamente K rutas con los K clientes más
-    // "comprometidos" hacia la bodega según el LP
     vector<vector<int>> routeClients(K);
     vector<int> routeLoad(K, 0);
     int started = 0;
+    
     for (int j : clientOrder) {
         if (started >= K) break;
         routeClients[started].push_back(j);
@@ -270,20 +297,17 @@ Solution BranchAndBound::lpGuidedConstruction(const double* lpSol) const {
         started++;
     }
 
-    // Fase 2: insertar el resto en la ruta con mejor arco LP disponible
     for (int j : clientOrder) {
         if (assigned[j]) continue;
         int demand = parserData->getClients()[j+1].getDemand();
 
-        int   bestRoute = -1;
+        int bestRoute = -1;
         double bestScore = -1.0;
 
         for (int r = 0; r < K; r++) {
             if (routeLoad[r] + demand > Q) continue;
-            // Score = mejor arco LP desde cualquier cliente de la ruta hacia j
             for (int node : routeClients[r]) {
-                double score = lpSol[getVarIndex(node, j)]
-                             + lpSol[getVarIndex(j, node)]; // arco en ambos sentidos
+                double score = lpSol[getVarIndex(node, j)] + lpSol[getVarIndex(j, node)]; 
                 if (score > bestScore) {
                     bestScore = score;
                     bestRoute = r;
@@ -295,25 +319,28 @@ Solution BranchAndBound::lpGuidedConstruction(const double* lpSol) const {
             routeClients[bestRoute].push_back(j);
             routeLoad[bestRoute] += demand;
         } else {
-            // No cabe en ninguna ruta existente: crear ruta extra
             routeClients.push_back({j});
             routeLoad.push_back(demand);
         }
         assigned[j] = true;
     }
 
-    // Construir Solution desde los grupos de clientes
     Solution sol(parserData);
     for (const auto& clients : routeClients) {
         if (clients.empty()) continue;
         Route route(Q, parserData);
-        for (int c : clients)
-            route.addClient(c + 1);
+        for (int c : clients) route.addClient(c + 1);
         sol.addRoute(route);
     }
     return sol;
 }
 
+/*
+ * Descripción: Estrategia de recorrido Best-First Search para el árbol B&B.
+ * Expande el nodo con la cota inferior más prometedora.
+ * Entrada: Tiempo límite de ejecución.
+ * Salida: Mejor solución entera encontrada.
+ */
 Solution BranchAndBound::solveBestFirst(double timeLimitSeconds) {
     ClpSimplex baseModel;
     baseModel.setLogLevel(0); 
@@ -329,6 +356,7 @@ Solution BranchAndBound::solveBestFirst(double timeLimitSeconds) {
     baseModel.initialSolve();
     cout << "LB inicial: " << baseModel.objectiveValue()
          << " | UB inicial (heuristica): " << globalUpperBound << endl;
+         
     if (!baseModel.isProvenOptimal()) return bestSolution;
     
     root.lowerBound = baseModel.objectiveValue();
@@ -337,7 +365,7 @@ Solution BranchAndBound::solveBestFirst(double timeLimitSeconds) {
     int nodesExplored = 0;
     int cutsAdded = 0;
     auto startTime = chrono::steady_clock::now();
-    double scaleFactor = 1.0 + 0.4 * std::sqrt((double)numClients / 32.0);
+
     while (!pq.empty()) {
         auto elapsed = chrono::duration<double>(
             chrono::steady_clock::now() - startTime).count();
@@ -346,23 +374,21 @@ Solution BranchAndBound::solveBestFirst(double timeLimitSeconds) {
                  << "s). Deteniendo BestFirst." << endl;
             break;
         }
+        
         BBNode current = pq.top();
         pq.pop();
         nodesExplored++;
-        
 
-        if (nodesExplored % 1000 == 0) {
-            cout << "[Debug B&B] Nodos: " << nodesExplored 
+        if (nodesExplored % 2000 == 0) {
+            cout << "Nodos: " << nodesExplored 
                  << " | Cola: " << pq.size() 
                  << " | Cortes Inyectados: " << cutsAdded
                  << " | Mejor LB: " << current.lowerBound 
                  << " | UB: " << globalUpperBound << endl;
         }
         
-        // Poda Bounding
         if (current.lowerBound >= globalUpperBound) continue; 
 
-        // Aplicar límites del nodo
         for(int i = 0; i < numVariables; ++i) {
             baseModel.setColumnLower(i, current.lowerBounds[i]);
             baseModel.setColumnUpper(i, current.upperBounds[i]);
@@ -376,38 +402,24 @@ Solution BranchAndBound::solveBestFirst(double timeLimitSeconds) {
 
         const double* solution = baseModel.primalColumnSolution();
         int fractionalVar = getMostFractionalVariable(solution);
-        //Heurística por redondeo (LP-guiado)
+        
         Solution roundedSol = lpGuidedConstruction(solution);
         if (roundedSol.isValid()) {
-            // Primero KOpt rápido para filtrar soluciones muy malas
             KOpt kopt(parserData);
             Solution koptSol = kopt.optimize(roundedSol);
     
-            // Solo invertir en VNS si KOpt ya está cerca del UB
-            if (koptSol.getTotalCost() < globalUpperBound * scaleFactor) {
-                VNS vnsLocal(parserData);
-                Solution refinedSol = vnsLocal.optimize(koptSol, 50);
-                if (refinedSol.getTotalCost() < globalUpperBound) {
-                    globalUpperBound = refinedSol.getTotalCost();
-                    bestSolution = refinedSol;
-                    cout << "[REDONDEO+VNS] Nuevo UB: " << globalUpperBound
-                        << " en nodo " << nodesExplored << endl;
-                }
-            } else if (koptSol.getTotalCost() < globalUpperBound) {
+            if (koptSol.getTotalCost() < globalUpperBound) {
                 globalUpperBound = koptSol.getTotalCost();
                 bestSolution = koptSol;
-                cout << "[REDONDEO] Nuevo UB: " << globalUpperBound
+                cout << "[HEURISTICA] Nuevo UB: " << globalUpperBound
                     << " en nodo " << nodesExplored << endl;
             }
         }
 
-        // --- EL CORAZÓN DE DFJ (LAZY CONSTRAINTS) ---
         if (fractionalVar == -1) { 
-            // CLP entregó una solución de 0s y 1s. ¡A buscar trampas!
             vector<vector<int>> invalidSets = findInvalidSets(solution);
             
             if (invalidSets.empty()) {
-                // No hay trampas. Es una solución legal CVRP.
                 if (currentObj < globalUpperBound) {
                     globalUpperBound = currentObj;
                     bestSolution = convertToSolution(solution);
@@ -415,13 +427,11 @@ Solution BranchAndBound::solveBestFirst(double timeLimitSeconds) {
                          << " en nodo " << nodesExplored << " | Cortes acumulados: " << cutsAdded << endl;
                 }
             } else {
-                // Trampa detectada. Inyectamos la inecuación a la matriz global.
                 CoinBuild cutBuilder;
                 for (const auto& S : invalidSets) {
                     int demandSum = 0;
                     for (int node : S) demandSum += parserData->getClients()[node + 1].getDemand();
                     
-                    // Vehículos mínimos necesarios para este set (Capacity Cut)
                     int k_s = std::ceil((double)demandSum / parserData->getCapacity());
                     if (k_s < 1) k_s = 1; 
                     
@@ -434,21 +444,17 @@ Solution BranchAndBound::solveBestFirst(double timeLimitSeconds) {
                             }
                         }
                     }
-                    // La suma de viajes internos debe ser <= |S| - K_s
                     cutBuilder.addRow(indices.size(), indices.data(), elements.data(), -COIN_DBL_MAX, S.size() - k_s);
                     cutsAdded++;
                 }
                 baseModel.addRows(cutBuilder);
                 
-                // La matriz cambió. Re-encolamos ESTE MISMO NODO para que CLP lo resuelva
-                // obligatoriamente respetando la nueva ley matemática.
                 current.lowerBound = currentObj; 
                 pq.push(current);
             }
             continue; 
         }
 
-        // Ramificación normal si es fraccionario
         BBNode leftChild = current;
         leftChild.level = current.level + 1;
         leftChild.upperBounds[fractionalVar] = 0.0;
@@ -463,25 +469,22 @@ Solution BranchAndBound::solveBestFirst(double timeLimitSeconds) {
     }
 
     cout << "BestFirst finalizado. Nodos: " << nodesExplored
-     << " | Cortes: " << cutsAdded << endl;
-
-    VNS vnsFinal(parserData);
-    double costBefore = bestSolution.getTotalCost();
-    bestSolution = vnsFinal.optimize(bestSolution, 30);
-    if (bestSolution.getTotalCost() < costBefore)
-        cout << "[VNS final] " << costBefore << " -> "
-            << bestSolution.getTotalCost()
-            << " (mejora: " << costBefore - bestSolution.getTotalCost() << ")" << endl;
+         << " | Cortes: " << cutsAdded << endl;
 
     return bestSolution;
 }
 
+/*
+ * Descripción: Estrategia de recorrido Depth-First Search para el árbol B&B.
+ * Expande los nodos buscando factibilidad rápida, útil para memoria reducida.
+ * Entrada: Tiempo límite de ejecución.
+ * Salida: Mejor solución entera encontrada.
+ */
 Solution BranchAndBound::solveDepthFirst(double timeLimitSeconds) {
     ClpSimplex baseModel;
     baseModel.setLogLevel(0); 
     buildBaseModel(baseModel);
 
-    // CAMBIO CLAVE: Usamos una Pila (Stack) para DFS en lugar de Cola de Prioridad
     std::stack<BBNode> st;
 
     BBNode root;
@@ -495,17 +498,15 @@ Solution BranchAndBound::solveDepthFirst(double timeLimitSeconds) {
     root.lowerBound = baseModel.objectiveValue();
     st.push(root);
 
-    
     int nodesExplored = 0;
     int cutsAdded = 0;
     auto startTime = chrono::steady_clock::now();
 
     while (!st.empty()) {
-        // En una pila también usamos top() para leer y pop() para extraer
-        
         BBNode current = st.top();
         st.pop();
         nodesExplored++;
+        
         auto elapsed = chrono::duration<double>(
             chrono::steady_clock::now() - startTime).count();
         if (elapsed >= timeLimitSeconds) {
@@ -514,18 +515,16 @@ Solution BranchAndBound::solveDepthFirst(double timeLimitSeconds) {
             break;
         }
 
-        if (nodesExplored % 1000 == 0) {
-            cout << "[Debug B&B (DFS)] Nodos: " << nodesExplored 
+        if (nodesExplored % 2000 == 0) {
+            cout << "Nodos: " << nodesExplored 
                  << " | Pila: " << st.size() 
                  << " | Cortes Inyectados: " << cutsAdded
                  << " | LB de este nodo: " << current.lowerBound 
                  << " | UB Actual: " << globalUpperBound << endl;
         }
         
-        // Poda Bounding
         if (current.lowerBound >= globalUpperBound) continue; 
 
-        // Aplicar límites del nodo
         for(int i = 0; i < numVariables; ++i) {
             baseModel.setColumnLower(i, current.lowerBounds[i]);
             baseModel.setColumnUpper(i, current.upperBounds[i]);
@@ -539,39 +538,24 @@ Solution BranchAndBound::solveDepthFirst(double timeLimitSeconds) {
 
         const double* solution = baseModel.primalColumnSolution();
         int fractionalVar = getMostFractionalVariable(solution);
-        //Heurística por redondeo
+        
         Solution roundedSol = lpGuidedConstruction(solution);
         if (roundedSol.isValid()) {
-            // Primero KOpt rápido para filtrar soluciones muy malas
             KOpt kopt(parserData);
             Solution koptSol = kopt.optimize(roundedSol);
     
-            // Solo invertir en VNS si KOpt ya está cerca del UB
-            if (koptSol.getTotalCost() < globalUpperBound * 1.4) {
-                VNS vnsLocal(parserData);
-                Solution refinedSol = vnsLocal.optimize(koptSol, 50);
-                if (refinedSol.getTotalCost() < globalUpperBound) {
-                    globalUpperBound = refinedSol.getTotalCost();
-                    bestSolution = refinedSol;
-                    cout << "[REDONDEO+VNS] Nuevo UB: " << globalUpperBound
-                        << " en nodo " << nodesExplored << endl;
-                }
-            } else if (koptSol.getTotalCost() < globalUpperBound) {
+            if (koptSol.getTotalCost() < globalUpperBound) {
                 globalUpperBound = koptSol.getTotalCost();
                 bestSolution = koptSol;
-                cout << "[REDONDEO] Nuevo UB: " << globalUpperBound
+                cout << "[HEURISTICA] Nuevo UB: " << globalUpperBound
                     << " en nodo " << nodesExplored << endl;
             }
         }
 
-
-        // --- EL CORAZÓN DE DFJ (LAZY CONSTRAINTS) ---
         if (fractionalVar == -1) { 
-            // CLP entregó una solución de 0s y 1s. ¡A buscar trampas!
             vector<vector<int>> invalidSets = findInvalidSets(solution);
             
             if (invalidSets.empty()) {
-                // No hay trampas. Es una solución legal CVRP.
                 if (currentObj < globalUpperBound) {
                     globalUpperBound = currentObj;
                     bestSolution = convertToSolution(solution);
@@ -579,7 +563,6 @@ Solution BranchAndBound::solveDepthFirst(double timeLimitSeconds) {
                          << " en nodo " << nodesExplored << " | Cortes acumulados: " << cutsAdded << endl;
                 }
             } else {
-                // Trampa detectada. Inyectamos la inecuación a la matriz global.
                 CoinBuild cutBuilder;
                 for (const auto& S : invalidSets) {
                     int demandSum = 0;
@@ -608,7 +591,6 @@ Solution BranchAndBound::solveDepthFirst(double timeLimitSeconds) {
             continue; 
         }
 
-        // Ramificación normal si es fraccionario
         BBNode leftChild = current;
         leftChild.level = current.level + 1;
         leftChild.upperBounds[fractionalVar] = 0.0;
@@ -619,30 +601,21 @@ Solution BranchAndBound::solveDepthFirst(double timeLimitSeconds) {
         rightChild.lowerBounds[fractionalVar] = 1.0;
         rightChild.lowerBound = currentObj; 
 
-        // NUEVO: Value Branching (Guiando al DFS)
+        // Value Branching: Insertar primero la rama contraria al valor continuo,
+        // luego la rama esperada (para que la pila la evalúe inmediatamente).
         double fractionalVal = solution[fractionalVar];
-        
-        // La Pila (LIFO) saca el ÚLTIMO elemento insertado primero.
         if (fractionalVal >= 0.5) {
-            // CLP cree que esta arista DEBERÍA existir.
-            st.push(leftChild);  // Metemos x=0 al fondo (para después)
-            st.push(rightChild); // Metemos x=1 arriba (se evalúa INMEDIATAMENTE)
+            st.push(leftChild);  
+            st.push(rightChild); 
         } else {
-            // CLP cree que esta arista NO debería existir.
-            st.push(rightChild); // Metemos x=1 al fondo (para después)
-            st.push(leftChild);  // Metemos x=0 arriba (se evalúa INMEDIATAMENTE)
+            st.push(rightChild); 
+            st.push(leftChild);  
         }
     }
 
     cout << "DepthFirst finalizado. Nodos: " << nodesExplored
-     << " | Cortes: " << cutsAdded << endl;
-    VNS vnsFinal(parserData);
-    double costBefore = bestSolution.getTotalCost();
-    bestSolution = vnsFinal.optimize(bestSolution, 30);
-    if (bestSolution.getTotalCost() < costBefore)
-        cout << "[VNS final] " << costBefore << " -> "
-            << bestSolution.getTotalCost()
-            << " (mejora: " << costBefore - bestSolution.getTotalCost() << ")" << endl;
+         << " | Cortes: " << cutsAdded << endl;
+         
     return bestSolution;
 }
 

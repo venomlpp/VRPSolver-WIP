@@ -4,31 +4,48 @@
 #include <coin/OsiClpSolverInterface.hpp>
 #include <coin/CbcModel.hpp>
 #include <coin/CoinPackedMatrix.hpp>
-// Cortes internos de CBC/CGL
 #include <coin/CglGomory.hpp>
 #include <coin/CglMixedIntegerRounding2.hpp>
 #include <coin/CglClique.hpp>
-// Heurísticas internas de CBC
 #include <coin/CbcHeuristicFPump.hpp>
 #include <coin/CbcHeuristicRINS.hpp>
 #include <climits>
 
 using namespace std;
 
+/*
+ * Descripción: Constructor del solver exacto.
+ * Entrada: Puntero a la instancia del parser.
+ * Salida: Instancia inicializada configurando la cantidad de variables X_ij y U_i.
+ */
 CbcSolver::CbcSolver(const Parser* parser) : parserData(parser) {
     numClients = parserData->getDimension();
-    // Variables X_ij (N * N) + Variables U_i (N - 1) para MTZ
     numVariables = (numClients * numClients) + (numClients - 1);
 }
 
+/*
+ * Descripción: Mapea coordenadas 2D a un índice lineal 1D para variables binarias.
+ * Entrada: Índices de nodo i, j.
+ * Salida: Índice de la variable X_ij en el modelo LP.
+ */
 int CbcSolver::getVarIndex(int i, int j) const {
     return i * numClients + j;
 }
 
+/*
+ * Descripción: Mapea el índice del cliente a su variable continua U_i para la formulación MTZ.
+ * Entrada: Índice del cliente.
+ * Salida: Índice de la variable U_i en el modelo LP.
+ */
 int CbcSolver::getUIndex(int i) const {
     return (numClients * numClients) + (i - 1);
 }
 
+/*
+ * Descripción: Convierte el vector LP resultante en un objeto Solution estructurado.
+ * Entrada: Arreglo de variables evaluadas por el solver.
+ * Salida: Objeto Solution validado.
+ */
 Solution CbcSolver::convertToSolution(const double* solution) const {
     Solution newSolution(parserData);
     for (int j = 1; j < numClients; ++j) {
@@ -52,8 +69,14 @@ Solution CbcSolver::convertToSolution(const double* solution) const {
     return newSolution;
 }
 
+/*
+ * Descripción: Ejecuta la resolución Branch & Cut del CVRP completo usando la librería CBC.
+ * Entrada: Solución heurística inicial (Warm Start) y límite de tiempo en segundos.
+ * Salida: Mejor solución entera encontrada.
+ */
 Solution CbcSolver::solve(const Solution& warmStart, double timeLimitSeconds) {
     int numVehicles = warmStart.getRoutes().size();
+    
     // =========================================================
     // 1. Interfaz OSI (CLP como solver LP interno de CBC)
     // =========================================================
@@ -136,7 +159,6 @@ Solution CbcSolver::solve(const Solution& warmStart, double timeLimitSeconds) {
     rowLowerVec.push_back(1.0); rowUpperVec.push_back((double)numVehicles);
 
     // C. Lifted MTZ (Desrochers & Laporte)
-    //    U_i - U_j + Q*X_ij + (Q - d_i - d_j)*X_ji <= Q - d_j
     for (int i = 1; i < numClients; ++i) {
         for (int j = 1; j < numClients; ++j) {
             if (i != j) {
@@ -180,7 +202,7 @@ Solution CbcSolver::solve(const Solution& warmStart, double timeLimitSeconds) {
     model.setLogLevel(0);
 
     // =========================================================
-    // 6. Warm Start: Clarke-Wright + VNS
+    // 6. Warm Start
     // =========================================================
     VNS vns(parserData);
 
@@ -219,14 +241,11 @@ Solution CbcSolver::solve(const Solution& warmStart, double timeLimitSeconds) {
     model.passInPriorities(priorities, false);
 
     // =========================================================
-    // 8. Cortes DFJ lazy (SubtourCutGenerator)
+    // 8. Cortes y Heurísticas internas de CBC/CGL
     // =========================================================
     SubtourCutGenerator subtourGen(parserData, numClients);
     model.addCutGenerator(&subtourGen, 1, "SubtourDFJ");
 
-    // =========================================================
-    // 9. Cortes internos de CBC/CGL
-    // =========================================================
     CglGomory gomory;
     gomory.setLimit(100);
     model.addCutGenerator(&gomory, 1, "Gomory");
@@ -237,9 +256,6 @@ Solution CbcSolver::solve(const Solution& warmStart, double timeLimitSeconds) {
     CglClique clique;
     model.addCutGenerator(&clique, 1, "Clique");
 
-    // =========================================================
-    // 10. Heurísticas internas de CBC
-    // =========================================================
     CbcHeuristicFPump fpump(model);
     fpump.setMaximumPasses(30);
     model.addHeuristic(&fpump, "FeasibilityPump");
@@ -248,16 +264,11 @@ Solution CbcSolver::solve(const Solution& warmStart, double timeLimitSeconds) {
     rins.setWhen(10);
     model.addHeuristic(&rins, "RINS");
 
-    // =========================================================
-    // 11. Límite de tiempo
-    // =========================================================
     model.setMaximumSeconds(timeLimitSeconds);
 
     // =========================================================
-    // 12. Resolver
+    // 9. Resolver
     // =========================================================
-
-    // Handler: reportes compactos + VNS sobre cada solución entera encontrada
     CbcProgressHandler progressHandler(parserData, &vns);
     model.passInEventHandler(&progressHandler);
 
@@ -265,25 +276,22 @@ Solution CbcSolver::solve(const Solution& warmStart, double timeLimitSeconds) {
          << " | Warm start: " << warmStart.getTotalCost()
          << " | Limite: " << timeLimitSeconds << "s ===" << endl;
 
-    // Suprimir stdout interno de CBC/CGL (clique cuts, gomory, etc.)
+    // Suprimir stdout interno de CBC/CGL para mantener limpia la consola
     int savedStdout = dup(STDOUT_FILENO);
     freopen("/dev/null", "w", stdout);
 
     model.branchAndBound();
 
-    // Restaurar stdout para que los prints posteriores sean visibles
     fflush(stdout);
     dup2(savedStdout, STDOUT_FILENO);
     close(savedStdout);
     std::cout.clear();
 
     // =========================================================
-    // 13. Extraer y refinar la mejor solución encontrada
+    // 10. Extraer y refinar la mejor solución encontrada
     // =========================================================
     Solution bestSolution(parserData);
-
-    bool hasRealSolution = (model.bestSolution() != nullptr)
-                        && (model.getObjValue() < 1e+49);
+    bool hasRealSolution = (model.bestSolution() != nullptr) && (model.getObjValue() < 1e+49);
 
     if (model.isProvenOptimal()) {
         cout << "\nCBC encontro solucion OPTIMA. Costo: " << model.getObjValue() << endl;
@@ -300,7 +308,6 @@ Solution CbcSolver::solve(const Solution& warmStart, double timeLimitSeconds) {
         bestSolution = warmStart;
     }
 
-    // Refinamiento final con VNS
     double costBeforeVNS = bestSolution.getTotalCost();
     bestSolution = vns.optimize(bestSolution);
     cout << "Costo tras refinamiento VNS final: " << bestSolution.getTotalCost();
@@ -308,9 +315,7 @@ Solution CbcSolver::solve(const Solution& warmStart, double timeLimitSeconds) {
         cout << "  (mejora de " << costBeforeVNS - bestSolution.getTotalCost() << ")";
     cout << endl;
 
-    // =========================================================
-    // 14. Limpieza de memoria
-    // =========================================================
+    // Limpieza de memoria
     delete[] objective;
     delete[] colLower;
     delete[] colUpper;
@@ -320,12 +325,12 @@ Solution CbcSolver::solve(const Solution& warmStart, double timeLimitSeconds) {
     return bestSolution;
 }
 
-// solveSubproblem
-// Núcleo del LNS-MIP: recibe la solución actual y los clientes liberados
-// por el operador destroy de ALNS, construye un mini-CVRP solo con esos
-// clientes, lo resuelve óptimamente con CBC y reconstruye la solución
-// completa fusionando las mini-rutas con los stubs de las rutas afectadas.
-// =============================================================================
+/*
+ * Descripción: Núcleo del LNS-MIP. Recibe la solución actual y los clientes liberados
+ * por el operador destroy de ALNS, construye un mini-CVRP y lo resuelve óptimamente.
+ * Entrada: Solución base actual, vector de clientes extraídos, tiempo límite.
+ * Salida: Solución completa fusionando stubs intactos con nuevas mini-rutas.
+ */
 Solution CbcSolver::solveSubproblem(const Solution&         currentSol,
                                     const vector<int>&      freeClients,
                                     double                  timeLimitSeconds) {
@@ -336,25 +341,22 @@ Solution CbcSolver::solveSubproblem(const Solution&         currentSol,
     int k = (int)freeClients.size();
 
     // ── 1. Separar rutas fijas y afectadas ───────────────────────────────
-    // Rutas fijas: ninguno de sus clientes está en freeSet → se conservan tal cual.
-    // Rutas afectadas: contienen al menos un cliente libre → se abren.
-    //   stub = clientes NO libres que quedan en la ruta afectada.
     vector<Route>        fixedRoutes;
-    vector<vector<int>>  stubs;      // secuencia de clientes fijos por ruta afectada
-    vector<int>          stubLoads;  // demanda acumulada de cada stub
+    vector<vector<int>>  stubs;      
+    vector<int>          stubLoads;  
 
     for (const auto& route : currentSol.getRoutes()) {
         const auto& path = route.getPath();
         bool affected = false;
-        for (int id : path)
+        for (int id : path) {
             if (freeSet.count(id)) { affected = true; break; }
+        }
 
         if (!affected) {
             fixedRoutes.push_back(route);
         } else {
             vector<int> stub;
             int load = 0;
-            // path[0] y path.back() son la bodega (ID=1)
             for (size_t p = 1; p < path.size() - 1; ++p) {
                 int id = path[p];
                 if (!freeSet.count(id)) {
@@ -370,28 +372,20 @@ Solution CbcSolver::solveSubproblem(const Solution&         currentSol,
     int numAffected = (int)stubs.size();
 
     // ── 2. Construir mini-CVRP ────────────────────────────────────────────
-    // Nodos del mini-modelo:
-    //   LP índice 0       → depot  (real ID = 1)
-    //   LP índice 1..k    → freeClients[0..k-1]
-    //
-    // Variables: X_ij (miniN * miniN) + U_i (k variables MTZ)
-
     int miniN        = k + 1;
     int numXVars     = miniN * miniN;
-    int totalMiniVar = numXVars + k;   // +k para U_1..U_k
+    int totalMiniVar = numXVars + k;
 
-    // Conversión nodo LP ↔ real ID
     auto nodeToRealId = [&](int i) -> int {
         return (i == 0) ? 1 : freeClients[i - 1];
     };
     auto xIdx = [&](int i, int j) { return i * miniN + j; };
-    auto uIdx = [&](int i) { return numXVars + (i - 1); }; // i en 1..k
+    auto uIdx = [&](int i) { return numXVars + (i - 1); };
 
     double* mObj = new double[totalMiniVar]();
     double* mLb  = new double[totalMiniVar]();
     double* mUb  = new double[totalMiniVar]();
 
-    // Variables X_ij
     for (int i = 0; i < miniN; ++i) {
         for (int j = 0; j < miniN; ++j) {
             int idx = xIdx(i, j);
@@ -401,7 +395,6 @@ Solution CbcSolver::solveSubproblem(const Solution&         currentSol,
         }
     }
 
-    // Variables U_i (continuas, rango [demanda_i, Q])
     for (int i = 1; i <= k; ++i) {
         int realId    = nodeToRealId(i);
         mObj[uIdx(i)] = 0.0;
@@ -414,7 +407,7 @@ Solution CbcSolver::solveSubproblem(const Solution&         currentSol,
     miniMat.setDimensions(0, totalMiniVar);
     vector<double> rLo, rHi;
 
-    // A. Grado de salida y entrada = 1 por cada cliente libre
+    // A. Grado de salida y entrada
     for (int i = 1; i < miniN; ++i) {
         vector<int> oI, iI; vector<double> oE, iE;
         for (int j = 0; j < miniN; ++j) {
@@ -428,8 +421,7 @@ Solution CbcSolver::solveSubproblem(const Solution&         currentSol,
         rLo.push_back(1.0); rHi.push_back(1.0);
     }
 
-    // B. Flota: entre 1 y (numAffected+1) rutas desde depot
-    //    +1 permite crear una ruta nueva si ningún stub tiene capacidad suficiente
+    // B. Flota
     int maxMiniVehicles = numAffected + 1;
     {
         vector<int> dO, dI; vector<double> dOe, dIe;
@@ -443,7 +435,7 @@ Solution CbcSolver::solveSubproblem(const Solution&         currentSol,
         rLo.push_back(1.0); rHi.push_back((double)maxMiniVehicles);
     }
 
-    // C. Lifted MTZ: U_i - U_j + Q*X_ij + (Q-di-dj)*X_ji <= Q-dj
+    // C. Lifted MTZ
     for (int i = 1; i <= k; ++i) {
         for (int j = 1; j <= k; ++j) {
             if (i == j) continue;
@@ -457,7 +449,7 @@ Solution CbcSolver::solveSubproblem(const Solution&         currentSol,
         }
     }
 
-    // D. Prohibición de 2-ciclos: X_ij + X_ji <= 1
+    // D. Prohibición de 2-ciclos
     for (int i = 1; i <= k; ++i) {
         for (int j = i+1; j <= k; ++j) {
             vector<int>    idx = {xIdx(i,j), xIdx(j,i)};
@@ -473,15 +465,16 @@ Solution CbcSolver::solveSubproblem(const Solution&         currentSol,
     miniOsi.setHintParam(OsiDoReducePrint, true);
     miniOsi.loadProblem(miniMat, mLb, mUb, mObj, rLo.data(), rHi.data());
 
-    for (int i = 0; i < miniN; ++i)
-        for (int j = 0; j < miniN; ++j)
+    for (int i = 0; i < miniN; ++i) {
+        for (int j = 0; j < miniN; ++j) {
             miniOsi.setInteger(xIdx(i, j));
+        }
+    }
 
     CbcModel miniModel(miniOsi);
     miniModel.setLogLevel(0);
     miniModel.setMaximumSeconds(timeLimitSeconds);
 
-    // Suprimir stdout de CBC durante el subproblema
     int savedFd = dup(STDOUT_FILENO);
     freopen("/dev/null", "w", stdout);
 
@@ -495,12 +488,11 @@ Solution CbcSolver::solveSubproblem(const Solution&         currentSol,
     // ── 5. Reconstruir si CBC encontró solución ───────────────────────────
     if (!miniModel.bestSolution() || miniModel.getObjValue() >= 1e49) {
         delete[] mObj; delete[] mLb; delete[] mUb;
-        return currentSol; // fallback: devolver solución sin cambios
+        return currentSol; 
     }
 
     const double* miniSol = miniModel.bestSolution();
 
-    // Extraer mini-rutas en real IDs
     vector<vector<int>> miniRoutes;
     for (int j = 1; j < miniN; ++j) {
         if (miniSol[xIdx(0, j)] <= 0.5) continue;
@@ -509,8 +501,12 @@ Solution CbcSolver::solveSubproblem(const Solution&         currentSol,
         while (curr != 0) {
             mRoute.push_back(nodeToRealId(curr));
             int next = -1;
-            for (int l = 0; l < miniN; ++l)
-                if (curr != l && miniSol[xIdx(curr, l)] > 0.5) { next = l; break; }
+            for (int l = 0; l < miniN; ++l) {
+                if (curr != l && miniSol[xIdx(curr, l)] > 0.5) { 
+                    next = l; 
+                    break; 
+                }
+            }
             curr = next;
             if (curr == -1) break;
         }
@@ -522,13 +518,12 @@ Solution CbcSolver::solveSubproblem(const Solution&         currentSol,
     return mergeSubproblemResult(fixedRoutes, stubs, stubLoads, miniRoutes);
 }
 
-// =============================================================================
-// mergeSubproblemResult
-// Estrategia de fusión Greedy-Distance (Inserción Espacial):
-// Evalúa insertar la mini-ruta completa en todas las posiciones posibles de 
-// todos los stubs con capacidad suficiente, eligiendo la que minimice el 
-// salto geográfico (Delta Z).
-// =============================================================================
+/*
+ * Descripción: Estrategia de fusión espacial (Greedy-Distance). Inserta las 
+ * mini-rutas calculadas por CBC en la posición geométrica más económica dentro de los stubs.
+ * Entrada: Rutas completas, stubs rotos, demandas parciales, mini-rutas óptimas.
+ * Salida: Solución validada.
+ */
 Solution CbcSolver::mergeSubproblemResult(
     const vector<Route>&          fixedRoutes,
     const vector<vector<int>>&    stubsOriginal,
@@ -538,11 +533,10 @@ Solution CbcSolver::mergeSubproblemResult(
     int Q = parserData->getCapacity();
     Solution result(parserData);
 
-    // Copiar rutas fijas sin cambios
-    for (const auto& r : fixedRoutes)
+    for (const auto& r : fixedRoutes) {
         result.addRoute(r);
+    }
 
-    // Hacemos copias mutables de los stubs para poder insertar dentro de ellos
     vector<vector<int>> stubs = stubsOriginal;
     vector<int> stubLoads = stubLoadsOriginal;
 
@@ -552,56 +546,55 @@ Solution CbcSolver::mergeSubproblemResult(
         return d;
     };
 
-    // Fusión por distancia
-    for (const auto& mr : miniRoutes) {
+    vector<vector<int>> sortedMiniRoutes = miniRoutes;
+    sort(sortedMiniRoutes.begin(), sortedMiniRoutes.end(),
+         [&](const vector<int>& a, const vector<int>& b) {
+             return miniDemand(a) > miniDemand(b);
+         });
+
+    for (const auto& mr : sortedMiniRoutes) {
         int md = miniDemand(mr);
         int first_mr = mr.front();
-        int last_mr = mr.back();
+        int last_mr  = mr.back();
 
-        int bestSi = -1;
-        int bestPos = -1;
+        int bestSi    = -1;
+        int bestPos   = -1;
         int bestDelta = INT_MAX;
 
         for (int si = 0; si < (int)stubs.size(); ++si) {
-            if (stubLoads[si] + md > Q) continue; // No cabe por capacidad
+            if (stubLoads[si] + md > Q) continue;
 
-            // Probar todas las posiciones de inserción dentro de este stub
             int stubSize = stubs[si].size();
             for (int pos = 0; pos <= stubSize; ++pos) {
-                int prev = (pos == 0) ? 1 : stubs[si][pos - 1]; // 1 es la bodega
+                int prev = (pos == 0)        ? 1 : stubs[si][pos - 1];
                 int next = (pos == stubSize) ? 1 : stubs[si][pos];
 
-                // Costo de romper el enlace prev->next e insertar mr completo
-                int delta = parserData->getDistance(prev, first_mr) 
-                          + parserData->getDistance(last_mr, next) 
+                int delta = parserData->getDistance(prev, first_mr)
+                          + parserData->getDistance(last_mr, next)
                           - parserData->getDistance(prev, next);
 
                 if (delta < bestDelta) {
                     bestDelta = delta;
-                    bestSi = si;
-                    bestPos = pos;
+                    bestSi    = si;
+                    bestPos   = pos;
                 }
             }
         }
 
         if (bestSi >= 0) {
-            // Inserción óptima encontrada: metemos mr dentro del stub elegido
-            stubs[bestSi].insert(stubs[bestSi].begin() + bestPos, mr.begin(), mr.end());
+            stubs[bestSi].insert(stubs[bestSi].begin() + bestPos,
+                                 mr.begin(), mr.end());
             stubLoads[bestSi] += md;
         } else {
-            // No cabe en ningún stub existente, se convierte en un nuevo stub (nueva ruta)
             stubs.push_back(mr);
             stubLoads.push_back(md);
         }
     }
 
-    // Transformar todos los stubs modificados en objetos Route formales
     for (int si = 0; si < (int)stubs.size(); ++si) {
         if (stubs[si].empty()) continue;
         Route newRoute(Q, parserData);
-        for (int id : stubs[si]) {
-            newRoute.addClient(id);
-        }
+        for (int id : stubs[si]) newRoute.addClient(id);
         result.addRoute(newRoute);
     }
 

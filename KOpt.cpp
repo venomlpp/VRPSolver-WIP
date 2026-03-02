@@ -1,18 +1,25 @@
 #include "KOpt.h"
 #include <vector>
-#include <algorithm> // Para std::reverse
+#include <algorithm> 
 #include <iostream>
 
 using namespace std;
 
-// Constructor
+/*
+ * Descripción: Constructor de la heurística 3-OPT.
+ * Entrada: Puntero constante a los datos parseados de la instancia.
+ * Salida: Instancia inicializada.
+ */
 KOpt::KOpt(const Parser* parser) : parserData(parser) {}
 
-// Método principal que itera sobre todas las rutas
+/*
+ * Descripción: Aplica la mejora 3-OPT a cada una de las rutas de una solución de manera independiente.
+ * Entrada: Solución inicial a optimizar.
+ * Salida: Objeto Solution con todas sus rutas en un mínimo local.
+ */
 Solution KOpt::optimize(const Solution& initialSolution) {
     Solution improvedSolution(parserData);
     
-    // Optimizamos vehículo por vehículo
     for (const auto& route : initialSolution.getRoutes()) {
         Route optimized = optimizeRoute(route);
         improvedSolution.addRoute(optimized);
@@ -21,7 +28,12 @@ Solution KOpt::optimize(const Solution& initialSolution) {
     return improvedSolution;
 }
 
-// El motor 3-OPT: Optimiza una sola ruta hasta llegar al mínimo local
+/*
+ * Descripción: Optimiza una sola ruta aplicando intercambios 3-OPT exhaustivos
+ * hasta que no se encuentren más mejoras (mínimo local).
+ * Entrada: Objeto Route a optimizar.
+ * Salida: Nuevo objeto Route con la secuencia optimizada.
+ */
 Route KOpt::optimizeRoute(const Route& route) {
     vector<int> path = route.getPath();
     bool improvement = true;
@@ -30,35 +42,32 @@ Route KOpt::optimizeRoute(const Route& route) {
         improvement = false;
         int n = path.size();
         
-        // Un 3-OPT real requiere cortar 3 aristas, lo que significa que la ruta 
-        // debe tener al menos 6 nodos (Ej: Bodega -> A -> B -> C -> D -> Bodega)
+        // Un 3-OPT requiere al menos 6 nodos para poder realizar 3 cortes válidos
         if (n < 6) break; 
         
-        // Iteramos buscando 3 cortes: i, j, k
         for (int i = 0; i <= n - 4 && !improvement; ++i) {
             for (int j = i + 1; j <= n - 3 && !improvement; ++j) {
                 for (int k = j + 1; k <= n - 2 && !improvement; ++k) {
                     
-                    // Nodos en los extremos de las 3 aristas cortadas
                     int a = path[i],   b = path[i+1];
                     int c = path[j],   d = path[j+1];
                     int e = path[k],   f = path[k+1];
                     
-                    // Costo base (las 3 aristas que vamos a eliminar)
                     int d0 = parserData->getDistance(a, b) + 
                              parserData->getDistance(c, d) + 
                              parserData->getDistance(e, f);
                     
-                    // Evaluamos en O(1) las 7 formas de reconectar los 4 segmentos resultantes
-                    // Segmentos: S1(inicio hasta a), S2(b hasta c), S3(d hasta e), S4(f hasta fin)
+                    // Evaluación O(1) de las 7 topologías de reconexión.
+                    // Segmentos resultantes de los cortes: 
+                    // S1 (inicio hasta a), S2 (b hasta c), S3 (d hasta e), S4 (f hasta fin)
                     
-                    // Opción 1: Invertir S2 (Equivalente a 2-OPT)
+                    // Opción 1: Invertir S2 (2-OPT)
                     int d1 = parserData->getDistance(a, c) + parserData->getDistance(b, d) + parserData->getDistance(e, f);
-                    // Opción 2: Invertir S3 (Equivalente a 2-OPT)
+                    // Opción 2: Invertir S3 (2-OPT)
                     int d2 = parserData->getDistance(a, b) + parserData->getDistance(c, e) + parserData->getDistance(d, f);
                     // Opción 3: Invertir S2 y S3
                     int d3 = parserData->getDistance(a, c) + parserData->getDistance(b, e) + parserData->getDistance(d, f);
-                    // Opción 4: Intercambiar S2 y S3 de lugar (Puro 3-OPT)
+                    // Opción 4: Intercambiar S2 y S3
                     int d4 = parserData->getDistance(a, d) + parserData->getDistance(e, b) + parserData->getDistance(c, f);
                     // Opción 5: Intercambiar S2 y S3, invirtiendo S2
                     int d5 = parserData->getDistance(a, d) + parserData->getDistance(e, c) + parserData->getDistance(b, f);
@@ -67,7 +76,6 @@ Route KOpt::optimizeRoute(const Route& route) {
                     // Opción 7: Intercambiar S2 y S3, invirtiendo ambos
                     int d7 = parserData->getDistance(a, e) + parserData->getDistance(d, c) + parserData->getDistance(b, f);
                     
-                    // Buscamos la mejor mejora (First-Improvement / Best-Improvement local)
                     int best_delta = 0;
                     int best_opt = 0;
                     
@@ -79,11 +87,10 @@ Route KOpt::optimizeRoute(const Route& route) {
                     if (d6 - d0 < best_delta) { best_delta = d6 - d0; best_opt = 6; }
                     if (d7 - d0 < best_delta) { best_delta = d7 - d0; best_opt = 7; }
                     
-                    // Si encontramos una reconexión que acorte la distancia, la aplicamos físicamente
+                    // Aplicar la mejor reconexión encontrada
                     if (best_opt > 0) {
                         improvement = true;
                         
-                        // Extraemos los bloques
                         vector<int> S1(path.begin(), path.begin() + i + 1);
                         vector<int> S2(path.begin() + i + 1, path.begin() + j + 1);
                         vector<int> S3(path.begin() + j + 1, path.begin() + k + 1);
@@ -92,7 +99,7 @@ Route KOpt::optimizeRoute(const Route& route) {
                         vector<int> S2_rev = S2; std::reverse(S2_rev.begin(), S2_rev.end());
                         vector<int> S3_rev = S3; std::reverse(S3_rev.begin(), S3_rev.end());
                         
-                        vector<int> newPath = S1; // Empezamos a ensamblar
+                        vector<int> newPath = S1; 
                         
                         if (best_opt == 1) {
                             newPath.insert(newPath.end(), S2_rev.begin(), S2_rev.end());
@@ -119,7 +126,6 @@ Route KOpt::optimizeRoute(const Route& route) {
                         
                         newPath.insert(newPath.end(), S4.begin(), S4.end());
                         
-                        // Sobrescribimos la ruta actual y el while reiniciará la búsqueda
                         path = newPath; 
                     }
                 }
@@ -127,12 +133,8 @@ Route KOpt::optimizeRoute(const Route& route) {
         }
     }
     
-    // Una vez que el ciclo while termina, significa que esta ruta está en su mínimo local perfecto.
-    // Creamos un nuevo objeto Route para validar y empaquetar de forma segura.
     Route optimizedRoute(parserData->getCapacity(), parserData);
     
-    // Saltamos el índice 0 y el índice final (que son la bodega 1), 
-    // porque el constructor de Route ya los inicializa por defecto.
     for (size_t i = 1; i < path.size() - 1; ++i) {
         optimizedRoute.addClient(path[i]);
     }
@@ -140,4 +142,9 @@ Route KOpt::optimizeRoute(const Route& route) {
     return optimizedRoute;
 }
 
+/*
+ * Descripción: Destructor de la clase.
+ * Entrada: Ninguna.
+ * Salida: Ninguna.
+ */
 KOpt::~KOpt() {}
