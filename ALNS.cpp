@@ -106,7 +106,8 @@ Solution ALNS::optimize(const Solution& initialSol, double timeLimitSeconds) {
         }
 
         double delta = newCost - currentCost;
-        double progress = elapsed / timeLimitSeconds; 
+        double coolingHorizon = min(50.0, timeLimitSeconds * 0.8);
+        double progress = min(1.0, elapsed / coolingHorizon);
         double T = T_start * pow(T_end / T_start, progress);
 
         bool accept = false;
@@ -126,7 +127,7 @@ Solution ALNS::optimize(const Solution& initialSol, double timeLimitSeconds) {
                 bestSol = cleanedSol;
                 currentDestroySize = 6; 
                 noImprovementCounter = 0;
-                cout << "   ---> [NUEVO OPTIMO GLOBAL]: " << bestSol.getTotalCost() << "\n";
+                cout << "EN " << elapsed << "s" "   ---> [NUEVO OPTIMO GLOBAL]: " << bestSol.getTotalCost() << "\n";
             } else {
                 noImprovementCounter++; 
             }
