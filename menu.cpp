@@ -79,12 +79,12 @@ void Menu::actualizarMejorSolucion(const Solution& solActual, const string& algo
  * Salida: Ninguna.
  */
 void Menu::cargarInstancia() {
-    cout << "\nIngrese el nombre del archivo de la instancia en /sets (ej. A-n32-k5): ";
+    cout << "\nIngrese el nombre del archivo de la instancia en /sets (ej. A-n32-k5.vrp): ";
     string ruta;
     cin >> ruta;
     
     try {
-        string realRoute = "sets/" + ruta + ".vrp";
+        string realRoute = "sets/" + ruta;
         parserGlobal = make_unique<Parser>(realRoute);
         instanciaCargada = true;
         mejorSolucionGlobal = Solution(parserGlobal.get()); 
